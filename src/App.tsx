@@ -7,6 +7,7 @@ import {
   ConfirmScreen,
   ConfirmedScreen,
 } from "@/screens";
+import { crearReserva, ReservaError } from "@/services/api";
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>("home");
@@ -16,6 +17,9 @@ export default function App() {
   const [selectedDate, setSelectedDate] = useState("");
   const [preSelected, setPreSelected] = useState<PreSelected | null>(null);
   const [homeSnapshot, setHomeSnapshot] = useState<HomeSnapshot | undefined>(undefined);
+  const [codigoReserva, setCodigoReserva] = useState("");
+  const [enviando, setEnviando] = useState(false);
+  const [errorReserva, setErrorReserva] = useState("");
 
   const handleSelectBusiness = (b: Business, pre: PreSelected | null, snapshot: HomeSnapshot) => {
     setSelectedBusiness(b);
@@ -28,10 +32,29 @@ export default function App() {
     setSelectedPro(pro);
     setSelectedSlot(slot);
     setSelectedDate(date);
+    setErrorReserva("");
     setScreen("confirm");
   };
 
-  const handleConfirm = () => setScreen("confirmed");
+  const handleConfirm = async () => {
+    if (!selectedBusiness || enviando) return;
+    setEnviando(true);
+    setErrorReserva("");
+    try {
+      // selectedBusiness.id es el id del ServicioProveedor (ver adaptador)
+      const reserva = await crearReserva(selectedBusiness.id, selectedDate, selectedSlot);
+      setCodigoReserva(reserva.codigo);
+      setScreen("confirmed");
+    } catch (e) {
+      setErrorReserva(
+        e instanceof ReservaError && e.status === 409
+          ? e.message
+          : "No se pudo completar la reserva. Intenta de nuevo."
+      );
+    } finally {
+      setEnviando(false);
+    }
+  };
 
   const handleHome = () => {
     setScreen("home");
@@ -40,6 +63,8 @@ export default function App() {
     setSelectedSlot("");
     setSelectedDate("");
     setPreSelected(null);
+    setCodigoReserva("");
+    setErrorReserva("");
   };
 
   if (screen === "home") {
@@ -79,8 +104,13 @@ export default function App() {
         professional={selectedPro}
         slot={selectedSlot}
         date={selectedDate}
+        enviando={enviando}
+        error={errorReserva}
         onConfirm={handleConfirm}
-        onBack={() => setScreen(preSelected ? "select-pro" : "detail")}
+        onBack={() => {
+          setErrorReserva("");
+          setScreen(preSelected ? "select-pro" : "detail");
+        }}
       />
     );
   }
@@ -92,6 +122,7 @@ export default function App() {
         professional={selectedPro}
         slot={selectedSlot}
         date={selectedDate}
+        codigo={codigoReserva}
         onHome={handleHome}
       />
     );

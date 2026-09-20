@@ -9,15 +9,26 @@ export function isDayAvailable(proName: string, day: number): boolean {
 }
 
 /**
- * Checks if a professional has availability for a given date (YYYY-MM-DD) and optional time slot
- */
-export function proTieneCupo(pro: Professional, fecha: string, hora?: string): boolean {
-  if (!fecha) return false;
-  const parts = fecha.split("-");
-  const dia = Number(parts[2]);
-  if (isNaN(dia)) return false;
-  return isDayAvailable(pro.name, dia) && (!hora || pro.slots.includes(hora));
-}
+ * 
+  * Horas disponibles de un profesional. Con datos reales usa slotsByDate;
+  * con datos falsos (sin slotsByDate) usa la lista fija de siempre.
+  */
+ export function slotsDeDia(pro: Professional, fecha?: string): string[] {
+   if (!pro.slotsByDate) return pro.slots;
+   if (fecha) return pro.slotsByDate[fecha] ?? [];
+   return Array.from(new Set(Object.values(pro.slotsByDate).flat()));
+ }
+
+ export function proTieneCupo(pro: Professional, fecha: string, hora?: string): boolean {
+   if (!fecha) return false;
+   if (!pro.slotsByDate) {
+     const dia = Number(fecha.split("-")[2]);
+     if (isNaN(dia)) return false;
+     return isDayAvailable(pro.name, dia) && (!hora || pro.slots.includes(hora));
+   }
+   const slots = pro.slotsByDate[fecha] ?? [];
+   return slots.length > 0 && (!hora || slots.includes(hora));
+ }
 
 /**
  * Parses "H:MM a.m./p.m." format to total minutes since midnight

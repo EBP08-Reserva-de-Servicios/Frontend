@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import type { Business, Professional, PreSelected } from "@/types";
-import { formatLongDate } from "@/utils";
+import { formatLongDate, slotsDeDia } from "@/utils";
 import { Header, CategoryBadge, ProfessionalCard } from "@/components";
 
 interface FilteredProScreenProps {
@@ -16,7 +16,9 @@ export function FilteredProScreen({
   onBook,
   onBack,
 }: FilteredProScreenProps) {
-  const available = business.professionals.filter((p) => p.slots.includes(preSelected.time));
+  const available = business.professionals.filter((p) =>
+    slotsDeDia(p, preSelected.date).includes(preSelected.time)
+  );
   const [selectedPro, setSelectedPro] = useState<Professional | null>(
     available.length === 1 ? available[0] : null
   );
@@ -178,4 +180,3 @@ export function FilteredProScreen({
     </div>
   );
 }
-
