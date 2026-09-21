@@ -8,6 +8,8 @@ interface ConfirmScreenProps {
   professional: Professional;
   slot: string;
   date: string;
+  enviando?: boolean;
+  error?: string;
   onConfirm: () => void;
   onBack: () => void;
 }
@@ -17,6 +19,8 @@ export function ConfirmScreen({
   professional,
   slot,
   date,
+  enviando = false,
+  error = "",
   onConfirm,
   onBack,
 }: ConfirmScreenProps) {
@@ -82,22 +86,32 @@ export function ConfirmScreen({
           </div>
         </div>
 
+        {error && (
+          <div
+            role="alert"
+            className="mb-4 px-4 py-3 rounded-xl bg-red-50 border border-red-100 text-sm text-red-700"
+          >
+            {error}
+          </div>
+        )}
+
         <div className="flex gap-3">
           <button
             onClick={onBack}
-            className="flex-1 py-3.5 border-2 border-slate-200 text-slate-700 font-semibold rounded-2xl text-sm hover:border-slate-300 hover:bg-slate-50 transition-colors cursor-pointer"
+            disabled={enviando}
+            className="flex-1 py-3.5 border-2 border-slate-200 text-slate-700 font-semibold rounded-2xl text-sm hover:border-slate-300 hover:bg-slate-50 transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
           >
             Volver
           </button>
           <button
             onClick={onConfirm}
-            className="flex-[2] py-3.5 bg-teal-600 hover:bg-teal-700 text-white font-bold rounded-2xl text-sm transition-colors shadow-md shadow-teal-200 cursor-pointer"
+            disabled={enviando}
+            className="flex-[2] py-3.5 bg-teal-600 hover:bg-teal-700 text-white font-bold rounded-2xl text-sm transition-colors shadow-md shadow-teal-200 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
           >
-            Confirmar
+            {enviando ? "Confirmando..." : "Confirmar"}
           </button>
         </div>
       </div>
     </div>
   );
 }
-

@@ -6,6 +6,7 @@ interface ConfirmedScreenProps {
   professional: Professional;
   slot: string;
   date?: string;
+  codigo: string;
   onHome: () => void;
 }
 
@@ -14,6 +15,7 @@ export function ConfirmedScreen({
   professional,
   slot,
   date,
+  codigo,
   onHome,
 }: ConfirmedScreenProps) {
   const displayDate = useMemo(() => {
@@ -23,8 +25,6 @@ export function ConfirmedScreen({
     }
     return new Date().toLocaleDateString("es-CO", { weekday: "long", day: "numeric", month: "long" });
   }, [date]);
-
-  const code = useMemo(() => `AG-${Math.floor(100000 + Math.random() * 900000)}`, []);
 
   return (
     <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
@@ -62,9 +62,9 @@ export function ConfirmedScreen({
               <span className="text-sm text-slate-500">Hora</span>
               <span className="text-sm font-semibold text-slate-800">{slot}</span>
             </div>
-            <div className="flex items-center justify-between py-2">
-              <span className="text-sm text-slate-500">Código de reserva</span>
-              <span className="text-sm font-bold text-teal-700 font-mono">{code}</span>
+            <div className="flex items-start justify-between gap-4 py-2">
+              <span className="text-sm text-slate-500 shrink-0">Código de reserva</span>
+              <span className="text-xs font-bold text-teal-700 font-mono text-right break-all">{codigo}</span>
             </div>
           </div>
 
@@ -86,4 +86,3 @@ export function ConfirmedScreen({
     </div>
   );
 }
-

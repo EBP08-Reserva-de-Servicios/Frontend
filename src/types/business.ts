@@ -5,6 +5,7 @@ export interface Professional {
   role: string;
   avatar: string;
   slots: string[];
+  slotsByDate?: Record<string, string[]>;
 }
 
 export interface Business {

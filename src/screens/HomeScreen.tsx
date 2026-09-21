@@ -1,6 +1,7 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import type { Business, PreSelected, Filters, HomeSnapshot } from "@/types";
-import { BUSINESSES, CITY_TO_DEPARTMENT } from "@/data";
+import { CITY_TO_DEPARTMENT } from "@/data";
+import { cargarNegocios } from "@/services/adapter";
 import { proTieneCupo } from "@/utils";
 import {
   Header,
@@ -29,6 +30,13 @@ export function HomeScreen({ onSelectBusiness, initialSnapshot }: HomeScreenProp
   );
   const [nameQuery, setNameQuery] = useState(initialSnapshot?.nameQuery ?? "");
   const [showMobilePanel, setShowMobilePanel] = useState(false);
+  const [negocios, setNegocios] = useState<Business[]>([]);
+
+  useEffect(() => {
+    cargarNegocios()
+      .then(setNegocios)
+      .catch((e) => console.error("No se pudo cargar desde el backend:", e));
+  }, []);
 
   const updateFilters = (partial: Partial<Filters>) =>
     setFilters((f) => ({ ...f, ...partial }));
@@ -45,7 +53,7 @@ export function HomeScreen({ onSelectBusiness, initialSnapshot }: HomeScreenProp
     setNameQuery("");
   };
 
-  const filtered = BUSINESSES.filter((b) => {
+  const filtered = negocios.filter((b) => {
     if (filters.category && b.category !== filters.category) return false;
     if (filters.service && b.service !== filters.service) return false;
     if (filters.municipality && b.city.toLowerCase() !== filters.municipality.toLowerCase())

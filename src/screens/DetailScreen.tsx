@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import type { Business, Professional } from "@/types";
 import { MONTH_NAMES } from "@/data";
-import { proTieneCupo, slotToMinutes, getNowMinutes } from "@/utils";
+import { proTieneCupo, slotsDeDia, slotToMinutes, getNowMinutes } from "@/utils";
 import { Header, CategoryBadge, MiniCalendar, ProfessionalCard } from "@/components";
 
 interface DetailScreenProps {
@@ -67,10 +67,13 @@ export function DetailScreen({ business, onBook, onBack }: DetailScreenProps) {
 
   const nowMinutes = getNowMinutes();
 
+  // Horas del día elegido (con datos reales usa slotsByDate; con datos falsos, la lista fija)
+  const slotsDelDia = slotsDeDia(selectedPro, selectedDateStr);
+
   const availableSlots = dayHasSlots
     ? isSelectedDayToday
-      ? selectedPro.slots.filter((s) => slotToMinutes(s) > nowMinutes)
-      : selectedPro.slots
+      ? slotsDelDia.filter((s) => slotToMinutes(s) > nowMinutes)
+      : slotsDelDia
     : [];
 
   return (
