@@ -12,6 +12,9 @@ import powerfitImage from "./assets/businesses/powerfit.jpg";
 import salonBelleImage from "./assets/businesses/salon-belle.jpg";
 import studioEliteImage from "./assets/businesses/studio-elite-hair.jpg";
 import veterinariaHuellitasImage from "./assets/businesses/veterinaria-huellitas.jpg";
+import { API_BASE_URL, ENDPOINTS, aRegistroCliente, aRegistroProveedor, aLogin, aReserva, aServicioProveedor, aProfesional, aHorario, estadoDesdeBackend,
+  type LoginRespuesta, type OfertaDetalle, type DisponibilidadDetalle, type ReservaDetalle } from "./api/contratoBackend";
+import { pedir, ErrorApi, guardarSesion, cerrarSesion, sesionActual, cuandoVenzaLaSesion, aEtiquetaHora, aHoraBackend, aFechaVisible } from "./api/api";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -38,9 +41,13 @@ interface Business {
   address: string;
   professionals: Professional[];
   gallery: string[];
+  nit?: number;          // NIT del proveedor
+  precio?: number;       // precio de la oferta
+  duracion?: number | null; // minutos
 }
 
 interface Professional {
+  id?: string;
   name: string;
   role: string;
   avatar: string;
@@ -397,6 +404,27 @@ const CATEGORY_IMAGE_FALLBACKS: Record<string, string> = {
   Deporte: powerfitImage,
   Mascotas: veterinariaHuellitasImage,
 };
+
+function ofertaANegocio(o: OfertaDetalle): Business {
+  const servicio = o.servicio.nombre;
+  const categoria = (SERVICE_TO_CATEGORY[servicio] ?? "") as CategoryType;
+  return {
+    id: o.id,
+    name: o.proveedor.razonSocial,
+    category: categoria,
+    service: servicio,
+    city: o.proveedor.municipio?.nombre ?? "",
+    availability: "",
+    image: o.proveedor.logoUrl ? API_BASE_URL + o.proveedor.logoUrl : (CATEGORY_IMAGE_FALLBACKS[categoria] ?? ""),
+    description: o.descripcion ?? o.proveedor.descripcion ?? o.servicio.descripcion ?? "",
+    address: o.proveedor.direccion ?? "",
+    professionals: [],
+    gallery: [],
+    nit: o.proveedor.nit,
+    precio: o.precio,
+    duracion: o.duracion ?? o.servicio.duracion,
+  };
+}
 
 function BusinessImage({
   business,
@@ -1027,7 +1055,25 @@ function HomeScreen({
   const updateFilters = (partial: Partial<Filters>) => setFilters((f) => ({ ...f, ...partial }));
   const resetFilters = () => { setFilters({ category: "", service: "", department: "", municipality: "", date: "", time: "" }); setNameQuery(""); };
 
-  const filtered = BUSINESSES.filter((b) => {
+  const [negocios, setNegocios] = useState<Business[]>([]);
+  const [cargando, setCargando] = useState(true);
+  const [errorCarga, setErrorCarga] = useState("");
+
+  useEffect(() => {
+    let vigente = true;
+    const params = new URLSearchParams();
+    if (filters.date) params.set("fecha", filters.date);
+    if (filters.date && filters.time) params.set("hora", aHoraBackend(filters.time));
+    const consulta = params.toString();
+    setCargando(true);
+    pedir<OfertaDetalle[]>(ENDPOINTS.buscar + (consulta ? `?${consulta}` : ""))
+      .then((ofertas) => { if (vigente) { setNegocios(ofertas.map(ofertaANegocio)); setErrorCarga(""); } })
+      .catch((e) => { if (vigente) setErrorCarga(e instanceof ErrorApi ? e.mensajes[0] : "No pudimos cargar las empresas."); })
+      .finally(() => { if (vigente) setCargando(false); });
+    return () => { vigente = false; };
+  }, [filters.date, filters.time]);
+
+  const filtered = negocios.filter((b) => {
     if (filters.category && b.category !== filters.category) return false;
     if (filters.service && b.service !== filters.service) return false;
     if (filters.municipality && b.city.toLowerCase() !== filters.municipality.toLowerCase()) return false;
@@ -1170,7 +1216,11 @@ function HomeScreen({
           )}
         </div>
 
-        {displayed.length === 0 ? (
+        {cargando ? (
+          <p className="py-10 text-center text-sm text-slate-500">Cargando empresas… (la primera vez puede tardar hasta 2 minutos)</p>
+        ) : errorCarga ? (
+          <p className="py-10 text-center text-sm text-red-600">{errorCarga}</p>
+        ) : displayed.length === 0 ? (
           <EmptyState onReset={resetFilters} />
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
@@ -1193,14 +1243,65 @@ function HomeScreen({
 const MONTH_NAMES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
 const DAY_NAMES = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
 
-// Deterministic: days where available based on pro name hash + day number
-function isDayAvailable(proName: string, day: number): boolean {
-  const hash = proName.split("").reduce((a, c) => a + c.charCodeAt(0), 0);
-  return (day + hash) % 4 !== 0;
+interface ProfesionalAgenda extends Professional {
+  id: string;
+  slotsPorFecha: Record<string, string[]>; // "AAAA-MM-DD" → ["8:00 a.m.", ...]
+}
+
+function fechaISO(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/** Carga los bloques libres de una oferta para hoy y las 4 semanas siguientes, agrupados por profesional. */
+function useAgendaOferta(ofertaId: number) {
+  const [profesionales, setProfesionales] = useState<ProfesionalAgenda[]>([]);
+  const [cargando, setCargando] = useState(true);
+  useEffect(() => {
+    let vigente = true;
+    const hoy = new Date();
+    const fechas = Array.from({ length: 29 }, (_, i) => {
+      const d = new Date(hoy);
+      d.setDate(hoy.getDate() + i);
+      return fechaISO(d);
+    });
+    setCargando(true);
+    Promise.all(fechas.map((f) =>
+      pedir<DisponibilidadDetalle[]>(`${ENDPOINTS.disponibilidad(ofertaId)}?fecha=${f}`).catch(() => [] as DisponibilidadDetalle[]),
+    ))
+      .then((porDia) => {
+        if (!vigente) return;
+        const mapa = new Map<string, ProfesionalAgenda>();
+        porDia.flat().forEach((b) => {
+          const id = b.profesional?.id ?? "";
+          if (!mapa.has(id)) {
+            mapa.set(id, {
+              id,
+              name: b.profesional ? `${b.profesional.nombres} ${b.profesional.apellidos}` : "Cualquier profesional",
+              role: "", avatar: "", slots: [], slotsPorFecha: {},
+            });
+          }
+          const p = mapa.get(id)!;
+          (p.slotsPorFecha[b.fecha] ??= []).push(aEtiquetaHora(b.horaInicio));
+        });
+        mapa.forEach((p) => Object.values(p.slotsPorFecha).forEach((horas) =>
+          horas.sort((a, b) => aHoraBackend(a).localeCompare(aHoraBackend(b)))));
+        setProfesionales([...mapa.values()]);
+      })
+      .finally(() => { if (vigente) setCargando(false); });
+    return () => { vigente = false; };
+  }, [ofertaId]);
+  return { profesionales, cargando };
+}
+
+function diaDisponible(pro: ProfesionalAgenda | null, anio: number, mes: number, dia: number): boolean {
+  if (!pro) return false;
+  const f = `${anio}-${String(mes + 1).padStart(2, "0")}-${String(dia).padStart(2, "0")}`;
+  return (pro.slotsPorFecha[f] ?? []).length > 0;
 }
 
 function MiniCalendar({
   proName,
+  estaDisponible,
   year,
   month,
   selectedDay,
@@ -1209,6 +1310,7 @@ function MiniCalendar({
   onNextMonth,
 }: {
   proName: string;
+  estaDisponible: (day: number) => boolean;
   year: number;
   month: number; // 0-indexed
   selectedDay: number | null;
@@ -1263,7 +1365,7 @@ function MiniCalendar({
       <div className="grid grid-cols-7 gap-y-0.5">
         {cells.map((day, idx) => {
           if (!day) return <div key={idx} />;
-          const available = isDayAvailable(proName, day);
+          const available = estaDisponible(day);
           const isPast = isCurrentMonth ? day < today.getDate() : false;
           const isSelectable = available && !isPast;
           const isToday = isCurrentMonth && day === today.getDate();
@@ -1299,7 +1401,11 @@ function MiniCalendar({
 
 function DetailScreen({ business, onBook, onBack, onLoginRequired }: { business: Business; onBook: (pro: Professional, slot: string, date: string) => void; onBack: () => void; onLoginRequired?: () => void }) {
   const today = new Date();
-  const [selectedPro, setSelectedPro] = useState<Professional>(business.professionals[0]);
+  const { profesionales, cargando } = useAgendaOferta(business.id);
+  const [selectedPro, setSelectedPro] = useState<ProfesionalAgenda | null>(null);
+  useEffect(() => {
+    if (!selectedPro && profesionales.length > 0) setSelectedPro(profesionales[0]);
+  }, [profesionales, selectedPro]);
   const [selectedSlot, setSelectedSlot] = useState("");
   const [calYear, setCalYear] = useState(today.getFullYear());
   const [calMonth, setCalMonth] = useState(today.getMonth());
@@ -1323,7 +1429,7 @@ function DetailScreen({ business, onBook, onBack, onLoginRequired }: { business:
     setSelectedDay(d);
     setSelectedSlot("");
   };
-  const handleSelectPro = (pro: Professional) => {
+  const handleSelectPro = (pro: ProfesionalAgenda) => {
     setSelectedPro(pro);
     setSelectedSlot("");
     setSelectedDay(today.getDate());
@@ -1332,7 +1438,7 @@ function DetailScreen({ business, onBook, onBack, onLoginRequired }: { business:
   };
 
   // Slots available only when day is available for this pro
-  const dayHasSlots = selectedDay !== null && isDayAvailable(selectedPro.name, selectedDay);
+  const dayHasSlots = selectedDay !== null && diaDisponible(selectedPro, calYear, calMonth, selectedDay);
   const isSelectedToday = calYear === today.getFullYear() && calMonth === today.getMonth() && selectedDay === today.getDate();
 
   function parseSlotMinutes(slot: string): number {
@@ -1348,11 +1454,17 @@ function DetailScreen({ business, onBook, onBack, onLoginRequired }: { business:
   }
 
   const nowMinutes = today.getHours() * 60 + today.getMinutes();
+  const fechaElegida = selectedDay !== null ? fechaISO(new Date(calYear, calMonth, selectedDay)) : "";
+  const slotsDelDia = selectedPro && fechaElegida ? selectedPro.slotsPorFecha[fechaElegida] ?? [] : [];
   const availableSlots = dayHasSlots
     ? isSelectedToday
-      ? selectedPro.slots.filter((s) => parseSlotMinutes(s) > nowMinutes)
-      : selectedPro.slots
+      ? slotsDelDia.filter((s) => parseSlotMinutes(s) > nowMinutes)
+      : slotsDelDia
     : [];
+
+  if (cargando) return <p className="py-20 text-center text-sm text-slate-500">Cargando horarios…</p>;
+  if (profesionales.length === 0) return <p className="py-20 text-center text-sm text-slate-500">Esta empresa no tiene horarios disponibles en las próximas 4 semanas.</p>;
+  if (!selectedPro) return <p className="py-20 text-center text-sm text-slate-500">Cargando horarios…</p>;
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -1396,9 +1508,9 @@ function DetailScreen({ business, onBook, onBack, onLoginRequired }: { business:
           <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 flex flex-col">
             <h2 className="font-display font-bold text-slate-900 mb-4 shrink-0" style={{ fontFamily: "Outfit, sans-serif" }}>Profesionales</h2>
             <div className="space-y-3 overflow-y-auto max-h-80 pr-1" style={{ scrollbarWidth: "thin" }}>
-              {business.professionals.map((pro) => (
+              {profesionales.map((pro) => (
                 <button
-                  key={pro.name}
+                  key={pro.id || pro.name}
                   onClick={() => handleSelectPro(pro)}
                   className={`w-full flex items-center gap-3 p-3 rounded-xl border transition-all text-left ${selectedPro.name === pro.name ? "border-teal-400 bg-teal-50" : "border-slate-100 bg-slate-50 hover:border-slate-200"}`}
                 >
@@ -1423,6 +1535,7 @@ function DetailScreen({ business, onBook, onBack, onLoginRequired }: { business:
 
             <MiniCalendar
               proName={selectedPro.name}
+              estaDisponible={(d) => diaDisponible(selectedPro, calYear, calMonth, d)}
               year={calYear}
               month={calMonth}
               selectedDay={selectedDay}
@@ -1499,10 +1612,12 @@ function FilteredProScreen({
   onBack: () => void;
   onLoginRequired?: () => void;
 }) {
-  const available = business.professionals.filter((p) => p.slots.includes(preSelected.time));
-  const [selectedPro, setSelectedPro] = useState<Professional | null>(
-    available.length === 1 ? available[0] : null
-  );
+  const { profesionales } = useAgendaOferta(business.id);
+  const available = profesionales.filter((p) => (p.slotsPorFecha[preSelected.date] ?? []).includes(preSelected.time));
+  const [selectedPro, setSelectedPro] = useState<ProfesionalAgenda | null>(null);
+  useEffect(() => {
+    if (!selectedPro && available.length === 1) setSelectedPro(available[0]);
+  }, [available, selectedPro]);
 
   const formattedDate = (() => {
     const d = new Date(preSelected.date + "T12:00:00");
@@ -1514,7 +1629,7 @@ function FilteredProScreen({
     { label: "Empresa", value: business.name },
     { label: "Fecha", value: formattedDate },
     { label: "Hora", value: preSelected.time },
-    { label: "Profesional", value: selectedPro ? `${selectedPro.name} — ${selectedPro.role}` : "" },
+    { label: "Profesional", value: selectedPro ? (selectedPro.role ? `${selectedPro.name} — ${selectedPro.role}` : selectedPro.name) : "" },
   ];
 
   return (
@@ -1585,10 +1700,10 @@ function FilteredProScreen({
             ) : (
               <div className="space-y-3 overflow-y-auto max-h-80 pr-1" style={{ scrollbarWidth: "thin" }}>
                 {available.map((pro) => {
-                  const isSelected = selectedPro?.name === pro.name;
+                  const isSelected = selectedPro?.id === pro.id;
                   return (
                     <button
-                      key={pro.name}
+                      key={pro.id || pro.name}
                       onClick={() => setSelectedPro(pro)}
                       className={`w-full flex items-center gap-3 p-3 rounded-xl border transition-all text-left ${isSelected ? "border-teal-400 bg-teal-50" : "border-slate-100 bg-slate-50 hover:border-slate-200"}`}
                     >
@@ -1990,6 +2105,16 @@ type ClientRegistrationField = "firstName" | "lastName" | "phone" | "email" | "d
 type ClientRegistrationValues = Record<ClientRegistrationField, string>;
 type ClientRegistrationErrors = Partial<Record<ClientRegistrationField, string>>;
 
+function campoCliente(mensaje: string): ClientRegistrationField {
+  const m = mensaje.toLowerCase();
+  if (m.includes("correo")) return "email";
+  if (m.includes("documento")) return "document";
+  if (m.includes("celular") || m.includes("teléfono")) return "phone";
+  if (m.includes("apellido")) return "lastName";
+  if (m.includes("nombre")) return "firstName";
+  return "password";
+}
+
 function RegistrationField({
   id,
   label,
@@ -2130,7 +2255,7 @@ function RegisterClientScreen({ onBack, onLogin }: { onBack: () => void; onLogin
     setErrors((current) => ({ ...current, [field]: validateField(field, values[field]) }));
   };
 
-  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setSubmitted(true);
     const nextErrors = (Object.keys(values) as ClientRegistrationField[]).reduce<ClientRegistrationErrors>((result, field) => {
@@ -2147,20 +2272,22 @@ function RegisterClientScreen({ onBack, onLogin }: { onBack: () => void; onLogin
     }
 
     setIsLoading(true);
-    timerRef.current = window.setTimeout(() => {
-      setIsLoading(false);
-      if (values.email.trim().toLowerCase() === "demo@agendaya.com") {
-        setErrors({ email: "Este correo ya está en uso. Intenta con otro o inicia sesión" });
-        fieldRefs.email.current?.focus();
-        return;
-      }
-      if (values.document.trim() === "1234567890") {
-        setErrors({ document: "Este documento ya está asociado a una cuenta" });
-        fieldRefs.document.current?.focus();
-        return;
-      }
+    try {
+      await pedir(ENDPOINTS.registroCliente, { metodo: "POST", cuerpo: aRegistroCliente(values) });
       setIsSuccessful(true);
-    }, 900);
+    } catch (e) {
+      const mensajes = e instanceof ErrorApi ? e.mensajes : ["Ocurrió un error. Intenta de nuevo."];
+      const porCampo: ClientRegistrationErrors = {};
+      mensajes.forEach((mensaje) => {
+        const campo = campoCliente(mensaje);
+        if (!porCampo[campo]) porCampo[campo] = mensaje;
+      });
+      setErrors(porCampo);
+      const primero = (Object.keys(values) as ClientRegistrationField[]).find((campo) => porCampo[campo]);
+      if (primero) fieldRefs[primero].current?.focus();
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -2314,6 +2441,22 @@ type ProviderRegistrationField =
 type ProviderRegistrationValues = Record<ProviderRegistrationField, string>;
 type ProviderRegistrationErrors = Partial<Record<ProviderRegistrationField | "logo", string>>;
 
+function campoProveedor(mensaje: string): keyof ProviderRegistrationErrors | null {
+  const m = mensaje.toLowerCase();
+  if (m.includes("logo") || m.includes("imagen")) return "logo";
+  if (m.includes("nit")) return "nit";
+  if (m.includes("empresa") || m.includes("razón social")) return "companyName";
+  if (m.includes("tipo de servicio")) return "serviceType";
+  if (m.includes("representante") && m.includes("celular")) return "representativePhone";
+  if (m.includes("representante") && m.includes("documento")) return "representativeDocument";
+  if (m.includes("representante") && m.includes("apellido")) return "representativeLastName";
+  if (m.includes("representante")) return "representativeFirstName";
+  if (m.includes("teléfono")) return "companyPhone";
+  if (m.includes("correo")) return "companyEmail";
+  if (m.includes("contraseña")) return "password";
+  return null;
+}
+
 function RegisterProviderScreen({ onBack, onLogin }: { onBack: () => void; onLogin: () => void }) {
   const [values, setValues] = useState<ProviderRegistrationValues>({
     serviceType: "",
@@ -2416,7 +2559,7 @@ function RegisterProviderScreen({ onBack, onLogin }: { onBack: () => void; onLog
     else fieldRefs[field].current?.focus();
   };
 
-  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setSubmitted(true);
     const fieldOrder: ProviderRegistrationField[] = [
@@ -2459,22 +2602,25 @@ function RegisterProviderScreen({ onBack, onLogin }: { onBack: () => void; onLog
     }
 
     setIsLoading(true);
-    timerRef.current = window.setTimeout(() => {
-      setIsLoading(false);
-      const conflicts: Array<{ matches: boolean; field: keyof ProviderRegistrationErrors; message: string }> = [
-        { matches: values.companyEmail.trim().toLowerCase() === "proveedor@agendaya.com", field: "companyEmail", message: "Este correo ya está en uso" },
-        { matches: values.companyPhone === "3001234567", field: "companyPhone", message: "Este teléfono ya está en uso" },
-        { matches: values.nit === "900123456", field: "nit", message: "Este NIT ya está en uso" },
-        { matches: values.companyName.trim().toLowerCase() === "consultmed especialidades", field: "companyName", message: "Este nombre de empresa ya está en uso" },
-      ];
-      const conflict = conflicts.find((item) => item.matches);
-      if (conflict) {
-        setErrors({ [conflict.field]: conflict.message });
-        focusField(conflict.field);
-        return;
-      }
+    try {
+      await pedir(ENDPOINTS.registroProveedor, { metodo: "POST", cuerpo: aRegistroProveedor(values, logoPreview) });
       setIsSuccessful(true);
-    }, 900);
+    } catch (e) {
+      const mensajes = e instanceof ErrorApi ? e.mensajes : ["Ocurrió un error. Intenta de nuevo."];
+      const porCampo: ProviderRegistrationErrors = {};
+      const sinCampo: string[] = [];
+      mensajes.forEach((mensaje) => {
+        const campo = campoProveedor(mensaje);
+        if (campo && !porCampo[campo]) porCampo[campo] = mensaje;
+        else if (!campo) sinCampo.push(mensaje);
+      });
+      setErrors(porCampo);
+      const primero = visualOrder.find((campo) => porCampo[campo]);
+      if (primero) focusField(primero);
+      if (sinCampo.length) window.alert(sinCampo.join("\n"));
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -2702,28 +2848,19 @@ function LoginScreen({ onBack, onRegister, onHome, notice }: { onBack: () => voi
 
   const emailFormatError = submitted && email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? "Ingresa un correo válido" : "";
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     setSubmitted(true);
     setAlert(null);
     if (!role || !email || !password || emailFormatError) return;
-    // Prototype: simulate wrong credentials for a demo email
-    if (email.toLowerCase() === "error@test.com") {
-      setAlert({ type: "error", message: "Correo o contraseña incorrectos. Verifica tus datos e intenta de nuevo." });
-      return;
+    try {
+      const respuesta = await pedir<LoginRespuesta>(ENDPOINTS.login, { metodo: "POST", cuerpo: aLogin(email, password, role) });
+      guardarSesion(respuesta);
+      setAlert({ type: "success", message: "Inicio de sesión exitoso. Redirigiendo al panel..." });
+      setTimeout(() => onHome(respuesta.cuenta.nombres, role), 1500);
+    } catch (e) {
+      const mensajes = e instanceof ErrorApi ? e.mensajes : ["Ocurrió un error. Intenta de nuevo."];
+      setAlert({ type: "error", message: mensajes.join(" ") });
     }
-    const nameMap: Record<string, { name: string; type: "client" | "provider" }> = {
-      "cliente@agendaya.com": { name: "María García", type: "client" },
-      "sinreservas@correo.com": { name: "Sin reservas", type: "client" },
-      "proveedor@agendaya.com": { name: "ConsultMed Especialidades", type: "provider" },
-    };
-    const registeredAccount = nameMap[email.toLowerCase()];
-    if (registeredAccount && registeredAccount.type !== role) {
-      setAlert({ type: "error", message: `Esta cuenta está registrada como ${registeredAccount.type === "client" ? "cliente" : "proveedor"}. Selecciona el rol correcto para continuar.` });
-      return;
-    }
-    const resolved = registeredAccount ?? { name: email.split("@")[0], type: role };
-    setAlert({ type: "success", message: "Inicio de sesión exitoso. Redirigiendo al panel..." });
-    setTimeout(() => onHome(resolved.name, resolved.type), 1500);
   };
 
   return (
@@ -2827,6 +2964,21 @@ interface Appointment {
   time: string;
   status: "pending" | "confirmed" | "cancelled" | "completed";
   rating?: number;
+}
+
+function reservaACita(r: ReservaDetalle): Appointment {
+  const servicio = r.servicioProveedor.servicio.nombre;
+  return {
+    id: r.codigo,
+    business: r.servicioProveedor.proveedor.razonSocial,
+    category: (SERVICE_TO_CATEGORY[servicio] ?? "") as CategoryType,
+    service: servicio,
+    professional: r.profesional ? `${r.profesional.nombres} ${r.profesional.apellidos}` : "Por asignar",
+    date: aFechaVisible(r.fecha),
+    dateValue: r.fecha,
+    time: aEtiquetaHora(r.hora),
+    status: estadoDesdeBackend(r.estado),
+  };
 }
 
 const MOCK_UPCOMING: Appointment[] = [
@@ -3186,6 +3338,44 @@ interface CatalogService {
   id: string; name: string; category: CategoryType; description: string;
 }
 
+type ServicioApi = { descripcion: string | null; duracion: number | null; id: number; nombre: string; precio: number | null };
+type ProfesionalApi = {
+  apellidos: string; correo: string; fotoUrl: string | null; id: string; nombres: string;
+  numeroDocumento: string; servicioProveedorIds: number[]; telefono: string; tipoDocumento: string | null;
+};
+type FranjaApi = { diaSemana: string; horaFin: string; horaInicio: string; id: number };
+const DIAS_BACKEND = ["LUNES", "MARTES", "MIERCOLES", "JUEVES", "VIERNES", "SABADO", "DOMINGO"];
+
+function servicioACatalogo(s: ServicioApi): CatalogService {
+  return { id: String(s.id), name: s.nombre, category: (SERVICE_TO_CATEGORY[s.nombre] ?? "") as CategoryType, description: s.descripcion ?? "" };
+}
+
+function ofertaAServicio(o: OfertaDetalle): ProviderService {
+  return {
+    id: String(o.id), name: o.servicio.nombre,
+    category: (SERVICE_TO_CATEGORY[o.servicio.nombre] ?? "") as CategoryType,
+    duration: o.duracion ?? o.servicio.duracion ?? 0, price: o.precio, description: o.descripcion ?? "",
+  };
+}
+
+function profesionalAFila(p: ProfesionalApi, servicios: ProviderService[]): ProviderProfessional {
+  return {
+    id: p.id, name: `${p.nombres} ${p.apellidos}`, firstName: p.nombres, lastName: p.apellidos,
+    role: "", schedule: "",
+    services: servicios.filter((s) => p.servicioProveedorIds.includes(Number(s.id))).map((s) => s.name),
+    email: p.correo, phone: p.telefono, docType: p.tipoDocumento ?? "", docNumber: p.numeroDocumento,
+    avatar: p.fotoUrl ? API_BASE_URL + p.fotoUrl : "",
+  };
+}
+
+function franjasABloques(franjas: FranjaApi[], profId: string): AvailabilityBlock[] {
+  return franjas.map((f) => {
+    const [sh, sm] = f.horaInicio.split(":").map(Number);
+    const [eh, em] = f.horaFin.split(":").map(Number);
+    return { id: String(f.id), profId, day: DIAS_BACKEND.indexOf(f.diaSemana), startH: sh, startM: sm, endH: eh, endM: em, type: "available" as const };
+  });
+}
+
 const PLATFORM_CATALOG: CatalogService[] = [
   { id: "c1", name: "Dermatología", category: "Salud", description: "Consulta especializada en diagnóstico y tratamiento de afecciones de la piel, cabello y uñas." },
   { id: "c2", name: "Nutrición", category: "Salud", description: "Evaluación nutricional y plan alimentario personalizado para mejorar salud y bienestar." },
@@ -3366,11 +3556,12 @@ function ProviderDashboard({
   onLogout: () => void;
   onDirtyChange: (dirty: boolean) => void;
 }) {
+  const nit = sesionActual()?.cuenta.id ?? "";
   const [tab, setTab] = useState<ProviderTab>("dashboard");
   const [requests, setRequests] = useState<ProviderRequest[]>(MOCK_REQUESTS);
   const [bookings, setBookings] = useState<ProviderBooking[]>(MOCK_PROVIDER_BOOKINGS);
-  const [professionals, setProfessionals] = useState<ProviderProfessional[]>(MOCK_PROVIDER_PROFESSIONALS);
-  const [services, setServices] = useState<ProviderService[]>(MOCK_PROVIDER_SERVICES);
+  const [professionals, setProfessionals] = useState<ProviderProfessional[]>([]);
+  const [services, setServices] = useState<ProviderService[]>([]);
   const [history] = useState<ProviderHistoryItem[]>(MOCK_PROVIDER_HISTORY);
   const [profile, setProfile] = useState({ company: providerName, email: "proveedor@agendaya.com", phone: "3001234567" });
   const [profileSaved, setProfileSaved] = useState(false);
@@ -3382,24 +3573,8 @@ function ProviderDashboard({
   };
 
   const [agendaProfId, setAgendaProfId] = useState<string | null>(null);
-  const [availBlocks, setAvailBlocks] = useState<AvailabilityBlock[]>(() => {
-    const blocks: AvailabilityBlock[] = [];
-    for (let index = 0; index < 5; index++) {
-      blocks.push(
-        { id: `laura-am-${index}`, profId: "pp1", day: index, startH: 8, startM: 0, endH: 12, endM: 0, type: "available" },
-        { id: `laura-pm-${index}`, profId: "pp1", day: index, startH: 14, startM: 0, endH: 18, endM: 0, type: "available" },
-      );
-    }
-    blocks.push(
-      { id: "laura-booked-1", profId: "pp1", day: 0, startH: 9, startM: 0, endH: 10, endM: 0, type: "booked", label: "María García · Consulta general" },
-      { id: "laura-booked-2", profId: "pp1", day: 2, startH: 14, startM: 0, endH: 15, endM: 0, type: "booked", label: "Camilo Vargas · Control de seguimiento" },
-    );
-    for (let index = 0; index < 5; index++) {
-      blocks.push({ id: `andres-am-${index}`, profId: "pp2", day: index, startH: 9, startM: 0, endH: 13, endM: 0, type: "available" });
-    }
-    blocks.push({ id: "andres-booked-1", profId: "pp2", day: 1, startH: 10, startM: 0, endH: 11, endM: 0, type: "booked", label: "Lucía Herrera · Limpieza dental" });
-    return blocks;
-  });
+  const [availBlocks, setAvailBlocks] = useState<AvailabilityBlock[]>([]);
+  const [catalogo, setCatalogo] = useState<CatalogService[]>([]);
 
   // Professionals tab state
   const [addProfOpen, setAddProfOpen] = useState(false);
@@ -3529,7 +3704,7 @@ function ProviderDashboard({
     }
   };
 
-  const handleSaveProf = () => {
+  const handleSaveProf = async () => {
     setProfFormSubmitted(true);
     setProfFormAlert(null);
     const fieldOrder: ProfFormField[] = ["docType", "docNumber", "firstName", "lastName", "email", "phone"];
@@ -3571,10 +3746,16 @@ function ProviderDashboard({
         services: profFormServices,
       } : p));
     } else {
-      setProfessionals((prev) => [...prev, {
-        id: `pp${Date.now()}`, name, firstName: firstName.trim(), lastName: lastName.trim(), role: "Sin rol asignado", services: profFormServices, schedule: "Por definir",
-        email: email.trim(), phone, docType: profForm.docType, docNumber: profForm.docNumber.trim(), avatar: profForm.avatar,
-      }]);
+      const ids = services.filter((sv) => profFormServices.includes(sv.name)).map((sv) => Number(sv.id));
+      try {
+        const creado = await pedir<ProfesionalApi>(ENDPOINTS.profesionales(nit), {
+          metodo: "POST", conSesion: true, cuerpo: aProfesional(profForm, ids),
+        });
+        setProfessionals((prev) => [...prev, profesionalAFila(creado, services)]);
+      } catch (e) {
+        setProfFormAlert({ type: "error", message: e instanceof ErrorApi ? e.mensajes.join(" ") : "No se pudo registrar el profesional." });
+        return;
+      }
     }
     setProfessionalToast(editProfId ? "Cambios guardados exitosamente." : "Profesional registrado correctamente");
     closeAddProf();
@@ -3600,7 +3781,7 @@ function ProviderDashboard({
   const newDurationRef = useRef<HTMLInputElement>(null);
   const newDescriptionRef = useRef<HTMLTextAreaElement>(null);
 
-  const filteredCatalog = PLATFORM_CATALOG.filter((e) => {
+  const filteredCatalog = catalogo.filter((e) => {
     if (catalogCategory && e.category !== catalogCategory) return false;
     if (catalogQuery && !e.name.toLowerCase().includes(catalogQuery.toLowerCase())) return false;
     return true;
@@ -3638,7 +3819,7 @@ function ProviderDashboard({
     setServiceFormSubmitted(false);
   };
 
-  const registerSelectedService = () => {
+  const registerSelectedService = async () => {
     setServiceFormSubmitted(true);
     if (!newDescription.trim()) {
       newDescriptionRef.current?.focus();
@@ -3655,20 +3836,46 @@ function ProviderDashboard({
     if (!selectedCatalogEntry || serviceRegisteringRef.current) return;
 
     serviceRegisteringRef.current = true;
-    setServices((previous) => [...previous, {
-      id: `ps${Date.now()}`,
-      name: selectedCatalogEntry.name,
-      category: selectedCatalogEntry.category,
-      description: newDescription.trim(),
-      price: Number(newPrice),
-      duration: Number(newDuration),
-    }]);
-    setServiceToast("Servicio configurado correctamente");
-    closeAddPanel();
-    queueMicrotask(() => {
+    try {
+      const creada = await pedir<OfertaDetalle>(ENDPOINTS.serviciosProveedor(nit), {
+        metodo: "POST", conSesion: true,
+        cuerpo: aServicioProveedor(Number(selectedCatalogEntry.id), newPrice, newDuration, newDescription.trim()),
+      });
+      setServices((previous) => [...previous, ofertaAServicio(creada)]);
+      setServiceToast("Servicio configurado correctamente");
+      closeAddPanel();
+    } catch (e) {
+      setServiceToast(e instanceof ErrorApi ? e.mensajes[0] : "No se pudo guardar el servicio.");
+    } finally {
       serviceRegisteringRef.current = false;
-    });
+    }
   };
+
+  useEffect(() => {
+    if (!nit) return;
+    let vigente = true;
+    (async () => {
+      try {
+        const [cat, ofertas] = await Promise.all([
+          pedir<ServicioApi[]>(ENDPOINTS.servicios),
+          pedir<OfertaDetalle[]>(ENDPOINTS.serviciosProveedor(nit)),
+        ]);
+        const servicios = ofertas.map(ofertaAServicio);
+        const profs = await pedir<ProfesionalApi[]>(ENDPOINTS.profesionales(nit), { conSesion: true });
+        const filas = profs.map((p) => profesionalAFila(p, servicios));
+        const bloques = await Promise.all(filas.map((p) =>
+          pedir<FranjaApi[]>(ENDPOINTS.horario(nit, p.id), { conSesion: true }).then((f) => franjasABloques(f, p.id)).catch(() => [] as AvailabilityBlock[])));
+        if (!vigente) return;
+        setCatalogo(cat.map(servicioACatalogo));
+        setServices(servicios);
+        setProfessionals(filas);
+        setAvailBlocks(bloques.flat());
+      } catch (e) {
+        if (vigente) setServiceToast(e instanceof ErrorApi ? e.mensajes[0] : "No pudimos cargar tus datos.");
+      }
+    })();
+    return () => { vigente = false; };
+  }, [nit]);
 
   const today = new Date().toLocaleDateString("es-CO", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 
@@ -3787,6 +3994,7 @@ function ProviderDashboard({
           <>
             {agendaProfId ? (
               <ProfAgenda
+                nit={nit}
                 prof={professionals.find(p => p.id === agendaProfId)!}
                 allBlocks={availBlocks}
                 onBlocksChange={setAvailBlocks}
@@ -4530,11 +4738,13 @@ function ProviderDashboard({
 // ─── ProfAgenda ───────────────────────────────────────────────────────────────
 
 function ProfAgenda({
+  nit,
   prof,
   allBlocks,
   onBlocksChange,
   onBack,
 }: {
+  nit: string;
   prof: ProviderProfessional;
   allBlocks: AvailabilityBlock[];
   onBlocksChange: (b: AvailabilityBlock[]) => void;
@@ -4621,7 +4831,7 @@ function ProfAgenda({
     });
   };
 
-  const saveAvailability = () => {
+  const saveAvailability = async () => {
     const nextErrors: Record<number, string> = {};
     const parsedRows = timeRows.map((row) => {
       const start = parseTime(row.start);
@@ -4674,19 +4884,19 @@ function ProfAgenda({
       }
     }
 
-    const preserved = allBlocks.filter((block) => block.id !== editingId);
-    const stamp = Date.now();
-    const created = selectedDays.flatMap((day) => parsedRows.map((row, index) => ({
-      id: `weekly-${stamp}-${day}-${index}`,
-      profId: prof.id,
-      day,
-      startH: row.startTime!.hours,
-      startM: row.startTime!.minutes,
-      endH: row.endTime!.hours,
-      endM: row.endTime!.minutes,
-      type: "available" as const,
-    })));
-    onBlocksChange([...preserved, ...created]);
+    try {
+      // El backend no tiene "editar franja": se borra la vieja y se crea la nueva.
+      if (editingId) await pedir(`${ENDPOINTS.horario(nit, prof.id)}/${editingId}`, { metodo: "DELETE", conSesion: true });
+      const franjas = await pedir<FranjaApi[]>(ENDPOINTS.horario(nit, prof.id), {
+        metodo: "POST", conSesion: true, cuerpo: aHorario(selectedDays, timeRows),
+      });
+      const nuevos = franjasABloques(franjas, prof.id);
+      const idsNuevos = new Set(nuevos.map((n) => n.id));
+      onBlocksChange([...allBlocks.filter((b) => b.id !== editingId && !idsNuevos.has(b.id)), ...nuevos]);
+    } catch (e) {
+      setWarning(e instanceof ErrorApi ? e.mensajes[0] : "No se pudo guardar la disponibilidad.");
+      return;
+    }
     setModalOpen(false);
     setToast("Disponibilidad agregada correctamente");
     setWarning("");
@@ -4708,7 +4918,14 @@ function ProfAgenda({
     setDeleteId(block.id);
   };
 
-  const confirmDelete = () => {
+  const confirmDelete = async () => {
+    try {
+      await pedir(`${ENDPOINTS.horario(nit, prof.id)}/${deleteId}`, { metodo: "DELETE", conSesion: true });
+    } catch (e) {
+      setWarning(e instanceof ErrorApi ? e.mensajes[0] : "No se pudo eliminar la franja.");
+      setDeleteId(null);
+      return;
+    }
     onBlocksChange(allBlocks.filter((block) => block.id !== deleteId));
     setDeleteId(null);
     setToast("Disponibilidad eliminada correctamente");
@@ -5001,13 +5218,16 @@ function SessionToast({ message }: { message: string }) {
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>("home");
-  const [clientName, setClientName] = useState("");
-  const [userType, setUserType] = useState<"client" | "provider" | "">("");
+  const sesionInicial = sesionActual();
+  const [clientName, setClientName] = useState(sesionInicial?.cuenta.nombres ?? "");
+  const [userType, setUserType] = useState<"client" | "provider" | "">(
+    sesionInicial ? (sesionInicial.cuenta.rol === "PROVEEDOR" ? "provider" : "client") : "",
+  );
   const [selectedBusiness, setSelectedBusiness] = useState<Business | null>(null);
   const [selectedPro, setSelectedPro] = useState<Professional | null>(null);
   const [selectedSlot, setSelectedSlot] = useState("");
   const [selectedDate, setSelectedDate] = useState("");
-  const [clientAppointments, setClientAppointments] = useState<Appointment[]>(MOCK_UPCOMING);
+  const [clientAppointments, setClientAppointments] = useState<Appointment[]>([]);
   const [clientDashboardTab, setClientDashboardTab] = useState<DashTab>("home");
   const [preSelected, setPreSelected] = useState<PreSelected | null>(null);
   const [homeSnapshot, setHomeSnapshot] = useState<HomeSnapshot | undefined>(undefined);
@@ -5028,6 +5248,18 @@ export default function App() {
     const timeout = window.setTimeout(() => setToast(""), 3200);
     return () => window.clearTimeout(timeout);
   }, [toast]);
+
+  useEffect(() => {
+    cuandoVenzaLaSesion(() => {
+      setClientName("");
+      setUserType("");
+      setHasUnsavedChanges(false);
+      setShowExpiryWarning(false);
+      setLoginNotice("Tu sesión expiró. Inicia sesión nuevamente.");
+      setScreen("login");
+      window.history.replaceState({ screen: "login" }, "", "#/login");
+    });
+  }, []);
 
   useEffect(() => {
     if (!isAuthenticated) return;
@@ -5054,6 +5286,7 @@ export default function App() {
       setSecondsRemaining(remaining);
       if (remaining <= 60) setShowExpiryWarning(true);
       if (remaining === 0) {
+        cerrarSesion();
         const message = hasUnsavedChanges
           ? "Tu sesión expiró y los cambios sin guardar se perdieron. Inicia sesión nuevamente para continuar."
           : "Tu sesión expiró por inactividad. Inicia sesión nuevamente.";
@@ -5106,6 +5339,7 @@ export default function App() {
   }, [clientName, userType]);
 
   const handleManualLogout = () => {
+    cerrarSesion();
     setClientName("");
     setUserType("");
     setHasUnsavedChanges(false);
@@ -5156,26 +5390,27 @@ export default function App() {
     setScreen("confirm");
   };
 
-  const handleConfirm = () => {
-    if (selectedBusiness && selectedPro && selectedDate) {
-      const parsedDate = new Date(`${selectedDate}T12:00:00`);
-      const displayDate = Number.isNaN(parsedDate.getTime())
-        ? selectedDate
-        : parsedDate.toLocaleDateString("es-CO", { weekday: "short", day: "numeric", month: "short", year: "numeric" });
-      setClientAppointments((current) => [...current, {
-        id: `u${Date.now()}`,
-        business: selectedBusiness.name,
-        category: selectedBusiness.category,
-        service: selectedBusiness.service,
-        professional: selectedPro.name,
-        date: displayDate,
-        dateValue: selectedDate,
-        time: selectedSlot,
-        status: "confirmed",
-      }]);
+  const handleConfirm = async () => {
+    if (!selectedBusiness || !selectedPro || !selectedDate) return;
+    try {
+      await pedir(ENDPOINTS.reservas, {
+        metodo: "POST",
+        conSesion: true,
+        cuerpo: aReserva(selectedBusiness.id, selectedDate, aHoraBackend(selectedSlot), selectedPro.id || undefined),
+      });
+      setScreen("confirmed");
+    } catch (e) {
+      showToast(e instanceof ErrorApi ? e.mensajes[0] : "No pudimos agendar la cita. Intenta de nuevo.");
+      setScreen("detail"); // vuelve a elegir otra hora
     }
-    setScreen("confirmed");
   };
+
+  useEffect(() => {
+    if (screen !== "client-dashboard" || userType !== "client") return;
+    pedir<ReservaDetalle[]>(ENDPOINTS.misCitas, { conSesion: true })
+      .then((citas) => setClientAppointments(citas.map(reservaACita)))
+      .catch(() => setClientAppointments([]));
+  }, [screen, userType]);
 
   const handleHome = () => {
     setScreen("home");

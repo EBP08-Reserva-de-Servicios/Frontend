@@ -1,4 +1,4 @@
-export const API_BASE_URL = "http://localhost:8080";
+export const API_BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8080";
 
 export const ENDPOINTS = {
   registroCliente: "/api/clientes/registro",
@@ -308,3 +308,14 @@ export function aReserva(
  * - Un token vencido (8 horas) responde 401: descartar el token y volver a la pantalla de inicio de sesión.
  */
 export const NOTAS_INTEGRACION = true;
+
+/** Forma de GET /api/disponibilidad/servicio-proveedor/{id}?fecha=... */
+export interface DisponibilidadDetalle {
+  estado: string;
+  fecha: string;        // "AAAA-MM-DD"
+  horaFin: string;      // "HH:mm:ss"
+  horaInicio: string;   // "HH:mm:ss"
+  id: number;
+  profesional: ProfesionalResumen | null;
+  servicioProveedor: OfertaDetalle;
+}
