@@ -12,8 +12,8 @@ import powerfitImage from "./assets/businesses/powerfit.jpg";
 import salonBelleImage from "./assets/businesses/salon-belle.jpg";
 import studioEliteImage from "./assets/businesses/studio-elite-hair.jpg";
 import veterinariaHuellitasImage from "./assets/businesses/veterinaria-huellitas.jpg";
-import { API_BASE_URL, ENDPOINTS, aRegistroCliente, aRegistroProveedor, aLogin, aReserva, aServicioProveedor, aProfesional, aHorario, estadoDesdeBackend,
-  type LoginRespuesta, type OfertaDetalle, type DisponibilidadDetalle, type ReservaDetalle } from "./api/contratoBackend";
+import { API_BASE_URL, ENDPOINTS, aRegistroCliente, aRegistroProveedor, aLogin, aReserva, aServicioProveedor, aProfesional, aHorario, estadoDesdeBackend, municipioIdPorNombre,
+  type LoginRespuesta, type OfertaDetalle, type DisponibilidadDetalle, type ReservaDetalle, type MunicipioResumen } from "./api/contratoBackend";
 import { pedir, ErrorApi, guardarSesion, cerrarSesion, sesionActual, cuandoVenzaLaSesion, aEtiquetaHora, aHoraBackend, aFechaVisible } from "./api/api";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -2433,6 +2433,8 @@ type ProviderRegistrationField =
   | "nit"
   | "companyPhone"
   | "companyEmail"
+  | "department"
+  | "city"
   | "representativeFirstName"
   | "representativeLastName"
   | "representativePhone"
@@ -2445,6 +2447,7 @@ function campoProveedor(mensaje: string): keyof ProviderRegistrationErrors | nul
   const m = mensaje.toLowerCase();
   if (m.includes("logo") || m.includes("imagen")) return "logo";
   if (m.includes("nit")) return "nit";
+  if (m.includes("municipio")) return "city";
   if (m.includes("empresa") || m.includes("razón social")) return "companyName";
   if (m.includes("tipo de servicio")) return "serviceType";
   if (m.includes("representante") && m.includes("celular")) return "representativePhone";
@@ -2464,6 +2467,8 @@ function RegisterProviderScreen({ onBack, onLogin }: { onBack: () => void; onLog
     nit: "",
     companyPhone: "",
     companyEmail: "",
+    department: "",
+    city: "",
     representativeFirstName: "",
     representativeLastName: "",
     representativePhone: "",
@@ -2482,7 +2487,9 @@ function RegisterProviderScreen({ onBack, onLogin }: { onBack: () => void; onLog
   const logoInputRef = useRef<HTMLInputElement>(null);
   const logoZoneRef = useRef<HTMLDivElement>(null);
   const serviceTypeRef = useRef<HTMLSelectElement>(null);
-  const fieldRefs: Record<Exclude<ProviderRegistrationField, "serviceType">, RefObject<HTMLInputElement | null>> = {
+  const departmentRef = useRef<HTMLSelectElement>(null);
+  const cityRef = useRef<HTMLSelectElement>(null);
+  const fieldRefs: Record<Exclude<ProviderRegistrationField, "serviceType" | "department" | "city">, RefObject<HTMLInputElement | null>> = {
     companyName: useRef<HTMLInputElement>(null),
     nit: useRef<HTMLInputElement>(null),
     companyPhone: useRef<HTMLInputElement>(null),
@@ -2556,6 +2563,8 @@ function RegisterProviderScreen({ onBack, onLogin }: { onBack: () => void; onLog
   const focusField = (field: ProviderRegistrationField | "logo") => {
     if (field === "serviceType") serviceTypeRef.current?.focus();
     else if (field === "logo") logoZoneRef.current?.focus();
+    else if (field === "department") departmentRef.current?.focus();
+    else if (field === "city") cityRef.current?.focus();
     else fieldRefs[field].current?.focus();
   };
 
@@ -2568,6 +2577,8 @@ function RegisterProviderScreen({ onBack, onLogin }: { onBack: () => void; onLog
       "nit",
       "companyPhone",
       "companyEmail",
+      "department", 
+      "city", 
       "representativeFirstName",
       "representativeLastName",
       "representativePhone",
@@ -2589,6 +2600,8 @@ function RegisterProviderScreen({ onBack, onLogin }: { onBack: () => void; onLog
       "nit",
       "companyPhone",
       "companyEmail",
+      "department",
+      "city",
       "representativeFirstName",
       "representativeLastName",
       "representativePhone",
@@ -2603,8 +2616,15 @@ function RegisterProviderScreen({ onBack, onLogin }: { onBack: () => void; onLog
 
     setIsLoading(true);
     try {
-      await pedir(ENDPOINTS.registroProveedor, { metodo: "POST", cuerpo: aRegistroProveedor(values, logoPreview) });
-      setIsSuccessful(true);
+    const municipios = await pedir<MunicipioResumen[]>(ENDPOINTS.municipios);
+    const municipioId = municipioIdPorNombre(municipios, values.department, values.city);
+    if (municipioId === undefined) {
+      setErrors({ city: "El municipio seleccionado no existe." });
+      focusField("city");
+      return;
+}
+await pedir(ENDPOINTS.registroProveedor, { metodo: "POST", cuerpo: aRegistroProveedor(values, logoPreview, municipioId) });
+setIsSuccessful(true);
     } catch (e) {
       const mensajes = e instanceof ErrorApi ? e.mensajes : ["Ocurrió un error. Intenta de nuevo."];
       const porCampo: ProviderRegistrationErrors = {};
@@ -2743,7 +2763,59 @@ function RegisterProviderScreen({ onBack, onLogin }: { onBack: () => void; onLog
                     <RegistrationField id="companyPhone" label="Teléfono de atención al cliente" value={values.companyPhone} placeholder="Ej. 3001234567" type="tel" inputMode="numeric" autoComplete="tel" error={errors.companyPhone} inputRef={fieldRefs.companyPhone} onChange={(value) => updateField("companyPhone", value)} onBlur={() => handleBlur("companyPhone")} />
                     <RegistrationField id="companyEmail" label="Correo de atención al cliente" value={values.companyEmail} placeholder="Ej. contacto@empresa.com" type="email" inputMode="email" autoComplete="email" error={errors.companyEmail} inputRef={fieldRefs.companyEmail} onChange={(value) => updateField("companyEmail", value)} onBlur={() => handleBlur("companyEmail")} />
                   </div>
-                </div>
+
+                  <div className="grid gap-x-4 sm:grid-cols-2">
+                    <div>
+                      <label htmlFor="department" className="mb-1.5 block text-sm font-semibold text-slate-700">
+                        Departamento <span className="text-red-500" aria-hidden="true">*</span><span className="sr-only"> (obligatorio)</span>
+                      </label>
+                      <select
+                        ref={departmentRef}
+                        id="department"
+                        value={values.department}
+                        onChange={(event) => {
+                          updateField("department", event.target.value);
+                          updateField("city", "");
+                        }}
+                        onBlur={() => handleBlur("department")}
+                        required
+                        aria-invalid={Boolean(errors.department)}
+                        aria-describedby={errors.department ? "department-error" : undefined}
+                        className={`w-full rounded-xl border bg-white px-3.5 py-3 text-sm outline-none transition-all focus:ring-4 ${errors.department ? "border-red-400 focus:border-red-500 focus:ring-red-100" : "border-slate-200 focus:border-teal-500 focus:ring-teal-50"}`}
+                      >
+                        <option value="">Selecciona el departamento</option>
+                        {DEPARTMENTS.map((department) => <option key={department}>{department}</option>)}
+                      </select>
+                      <div className="min-h-5 pt-1">
+                        {errors.department && <p id="department-error" role="alert" className="flex items-center gap-1.5 text-xs font-medium text-red-600"><svg className="h-3.5 w-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>{errors.department}</p>}
+                      </div>
+                    </div>
+                    <div>
+                      <label htmlFor="city" className="mb-1.5 block text-sm font-semibold text-slate-700">
+                        Ciudad o municipio <span className="text-red-500" aria-hidden="true">*</span><span className="sr-only"> (obligatorio)</span>
+                      </label>
+                      <select
+                        ref={cityRef}
+                        id="city"
+                        value={values.city}
+                        onChange={(event) => updateField("city", event.target.value)}
+                        onBlur={() => handleBlur("city")}
+                        disabled={!values.department}
+                        required
+                        aria-invalid={Boolean(errors.city)}
+                        aria-describedby={errors.city ? "city-error" : undefined}
+                        className={`w-full rounded-xl border bg-white px-3.5 py-3 text-sm outline-none transition-all focus:ring-4 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400 ${errors.city ? "border-red-400 focus:border-red-500 focus:ring-red-100" : "border-slate-200 focus:border-teal-500 focus:ring-teal-50"}`}
+                      >
+                        <option value="">{values.department ? "Selecciona la ciudad o municipio" : "Primero selecciona el departamento"}</option>
+                        {(COLOMBIA_GEO[values.department] ?? []).map((city) => <option key={city}>{city}</option>)}
+                      </select>
+                      <div className="min-h-5 pt-1">
+                        {errors.city && <p id="city-error" role="alert" className="flex items-center gap-1.5 text-xs font-medium text-red-600"><svg className="h-3.5 w-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>{errors.city}</p>}
+                      </div>
+                    </div>
+                  </div>
+
+                  </div>
               </section>
 
               <section className="mt-8 border-t border-slate-100 pt-7" aria-labelledby="representative-section-title">

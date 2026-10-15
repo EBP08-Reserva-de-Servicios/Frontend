@@ -28,6 +28,7 @@ export interface RegistroClienteBody {
 }
 
 export interface RegistroProveedorBody {
+  municipioId: number;
   tipoServicio: string;
   razonSocial: string;
   logo: string;
@@ -193,7 +194,7 @@ export function aRegistroProveedor(values: {
   representativePhone: string;
   representativeDocument: string;
   password: string;
-}, logoPreview: string): RegistroProveedorBody {
+}, logoPreview: string, municipioId: number): RegistroProveedorBody {
   return {
     tipoServicio: values.serviceType,
     razonSocial: values.companyName,
@@ -206,6 +207,7 @@ export function aRegistroProveedor(values: {
     representanteCelular: values.representativePhone,
     representanteDocumento: values.representativeDocument,
     clave: values.password,
+    municipioId,
   };
 }
 
@@ -318,4 +320,16 @@ export interface DisponibilidadDetalle {
   id: number;
   profesional: ProfesionalResumen | null;
   servicioProveedor: OfertaDetalle;
+}
+
+export function municipioIdPorNombre(
+  municipios: MunicipioResumen[],
+  departamento: string,
+  ciudad: string,
+): number | undefined {
+  const normalizar = (texto: string) =>
+    texto.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase().replace(/\s*d\.?\s*c\.?$/, "");
+  return municipios.find(
+    (m) => normalizar(m.nombre) === normalizar(ciudad) && normalizar(m.departamento.nombre) === normalizar(departamento),
+  )?.codigo;
 }
