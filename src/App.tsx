@@ -35,6 +35,7 @@ interface Business {
   category: CategoryType;
   service: string;
   city: string;
+  department?: string;  // departamento del proveedor (viene del backend)
   availability?: string;
   image: string;
   description: string;
@@ -405,6 +406,13 @@ const CATEGORY_IMAGE_FALLBACKS: Record<string, string> = {
   Mascotas: veterinariaHuellitasImage,
 };
 
+// Compara nombres de lugares sin tildes, sin mayúsculas y sin "D.C." ("Bogotá D.C." del filtro = "Bogotá" del backend)
+function mismoLugar(a: string, b: string): boolean {
+  const normalizar = (texto: string) =>
+    texto.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase().replace(/\s*d\.?\s*c\.?$/, "");
+  return normalizar(a) === normalizar(b);
+}
+
 function ofertaANegocio(o: OfertaDetalle): Business {
   const servicio = o.servicio.nombre;
   const categoria = (SERVICE_TO_CATEGORY[servicio] ?? "") as CategoryType;
@@ -414,6 +422,7 @@ function ofertaANegocio(o: OfertaDetalle): Business {
     category: categoria,
     service: servicio,
     city: o.proveedor.municipio?.nombre ?? "",
+    department: o.proveedor.municipio?.departamento?.nombre ?? "",
     availability: "",
     image: o.proveedor.logoUrl ? API_BASE_URL + o.proveedor.logoUrl : (CATEGORY_IMAGE_FALLBACKS[categoria] ?? ""),
     description: o.descripcion ?? o.proveedor.descripcion ?? o.servicio.descripcion ?? "",
@@ -1076,10 +1085,10 @@ function HomeScreen({
   const filtered = negocios.filter((b) => {
     if (filters.category && b.category !== filters.category) return false;
     if (filters.service && b.service !== filters.service) return false;
-    if (filters.municipality && b.city.toLowerCase() !== filters.municipality.toLowerCase()) return false;
+    if (filters.municipality && !mismoLugar(b.city, filters.municipality)) return false;
     else if (!filters.municipality && filters.department) {
-      const dept = CITY_TO_DEPARTMENT[b.city];
-      if (dept !== filters.department) return false;
+      const dept = b.department || CITY_TO_DEPARTMENT[b.city] || "";
+      if (!mismoLugar(dept, filters.department)) return false;
     }
     if (nameQuery.trim() && !b.name.toLowerCase().includes(nameQuery.trim().toLowerCase())) return false;
     return true;
