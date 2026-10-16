@@ -13,7 +13,7 @@ import salonBelleImage from "./assets/businesses/salon-belle.jpg";
 import studioEliteImage from "./assets/businesses/studio-elite-hair.jpg";
 import veterinariaHuellitasImage from "./assets/businesses/veterinaria-huellitas.jpg";
 import { API_BASE_URL, ENDPOINTS, aRegistroCliente, aRegistroProveedor, aLogin, aReserva, aServicioProveedor, aProfesional, aHorario, estadoDesdeBackend, municipioIdPorNombre,
-  type LoginRespuesta, type OfertaDetalle, type DisponibilidadDetalle, type ReservaDetalle, type MunicipioResumen } from "./api/contratoBackend";
+  type LoginRespuesta, type OfertaDetalle, type DisponibilidadDetalle, type ReservaDetalle, type ReservaCreada, type MunicipioResumen } from "./api/contratoBackend";
 import { pedir, ErrorApi, guardarSesion, cerrarSesion, sesionActual, cuandoVenzaLaSesion, aEtiquetaHora, aHoraBackend, aFechaVisible } from "./api/api";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -1845,7 +1845,7 @@ function ConfirmScreen({
             {[
               { label: "Servicio", value: business.category, icon: "🎯" },
               { label: "Empresa", value: business.name, icon: "🏢" },
-              { label: "Profesional", value: `${professional.name} — ${professional.role}`, icon: "👤" },
+              { label: "Profesional", value: professional.role ? `${professional.name} — ${professional.role}` : professional.name, icon: "👤" },
               { label: "Fecha", value: formattedDate, icon: "📅" },
               { label: "Hora", value: slot, icon: "🕐" },
             ].map(({ label, value, icon }) => (
@@ -1883,9 +1883,9 @@ function ConfirmScreen({
 
 // ─── Confirmed Screen ──────────────────────────────────────────────────────────
 
-function ConfirmedScreen({ business, professional, slot, onHome, onViewBookings }: { business: Business; professional: Professional; slot: string; onHome: () => void; onViewBookings: () => void }) {
-  const today = new Date().toLocaleDateString("es-CO", { weekday: "long", day: "numeric", month: "long" });
-  const code = `AG-${Math.floor(100000 + Math.random() * 900000)}`;
+function ConfirmedScreen({ business, professional, slot, date, code, onHome, onViewBookings }: { business: Business; professional: Professional; slot: string; date: string; code: string; onHome: () => void; onViewBookings: () => void }) {
+  // Fecha de la cita elegida ("AAAA-MM-DD"), no la de hoy. El mediodía evita que la zona horaria cambie el día.
+  const today = new Date(`${date}T12:00:00`).toLocaleDateString("es-CO", { weekday: "long", day: "numeric", month: "long" });
 
   return (
     <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
@@ -1923,7 +1923,7 @@ function ConfirmedScreen({ business, professional, slot, onHome, onViewBookings 
             </div>
             <div className="flex items-center justify-between py-2">
               <span className="text-sm text-slate-500">Código de reserva</span>
-              <span className="text-sm font-bold text-teal-700 font-mono">{code}</span>
+              <span className="text-xs font-bold text-teal-700 font-mono break-all text-right ml-4">{code}</span>
             </div>
           </div>
 
@@ -5338,6 +5338,7 @@ export default function App() {
   const [selectedPro, setSelectedPro] = useState<Professional | null>(null);
   const [selectedSlot, setSelectedSlot] = useState("");
   const [selectedDate, setSelectedDate] = useState("");
+  const [codigoReserva, setCodigoReserva] = useState("");
   const [clientAppointments, setClientAppointments] = useState<Appointment[]>([]);
   const [clientDashboardTab, setClientDashboardTab] = useState<DashTab>("home");
   const [preSelected, setPreSelected] = useState<PreSelected | null>(null);
@@ -5504,11 +5505,12 @@ export default function App() {
   const handleConfirm = async () => {
     if (!selectedBusiness || !selectedPro || !selectedDate) return;
     try {
-      await pedir(ENDPOINTS.reservas, {
+      const reserva = await pedir<ReservaCreada>(ENDPOINTS.reservas, {
         metodo: "POST",
         conSesion: true,
         cuerpo: aReserva(selectedBusiness.id, selectedDate, aHoraBackend(selectedSlot), selectedPro.id || undefined),
       });
+      setCodigoReserva(reserva.codigo); // código real de la reserva (UUID del backend)
       setScreen("confirmed");
     } catch (e) {
       showToast(e instanceof ErrorApi ? e.mensajes[0] : "No pudimos agendar la cita. Intenta de nuevo.");
@@ -5634,7 +5636,7 @@ export default function App() {
       onBack={() => setScreen(preSelected ? "select-pro" : "detail")}
     />;
   } else if (screen === "confirmed" && selectedBusiness && selectedPro) {
-    content = <ConfirmedScreen business={selectedBusiness} professional={selectedPro} slot={selectedSlot} onHome={handleHome} onViewBookings={handleViewBookings} />;
+    content = <ConfirmedScreen business={selectedBusiness} professional={selectedPro} slot={selectedSlot} date={selectedDate} code={codigoReserva} onHome={handleHome} onViewBookings={handleViewBookings} />;
   }
 
   const showQuickLogout = isAuthenticated && !["home", "client-dashboard", "provider-dashboard"].includes(screen);
