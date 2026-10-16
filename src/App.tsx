@@ -1286,7 +1286,12 @@ function useAgendaOferta(ofertaId: number) {
             mapa.set(id, {
               id,
               name: b.profesional ? `${b.profesional.nombres} ${b.profesional.apellidos}` : "Cualquier profesional",
-              role: "", avatar: "", slots: [], slotsPorFecha: {},
+              role: "",
+              // La foto se pide al backend; si el profesional no tiene, AvatarProfesional muestra sus iniciales.
+              avatar: b.profesional
+                ? `${API_BASE_URL}/api/proveedores/${b.servicioProveedor.proveedor.nit}/profesionales/${b.profesional.id}/foto`
+                : "",
+              slots: [], slotsPorFecha: {},
             });
           }
           const p = mapa.get(id)!;
@@ -1300,6 +1305,20 @@ function useAgendaOferta(ofertaId: number) {
     return () => { vigente = false; };
   }, [ofertaId]);
   return { profesionales, cargando };
+}
+
+/** Foto del profesional; si no tiene o no carga, un círculo con sus iniciales (nunca una imagen rota). */
+function AvatarProfesional({ src, nombre }: { src: string; nombre: string }) {
+  const [fallo, setFallo] = useState(false);
+  if (!src || fallo) {
+    const iniciales = nombre.split(" ").filter(Boolean).slice(0, 2).map((p) => p[0].toUpperCase()).join("");
+    return (
+      <div className="w-11 h-11 rounded-full bg-teal-100 text-teal-700 text-sm font-bold flex items-center justify-center shrink-0">
+        {iniciales || "?"}
+      </div>
+    );
+  }
+  return <img src={src} alt={nombre} onError={() => setFallo(true)} className="w-11 h-11 rounded-full object-cover bg-slate-200 shrink-0" />;
 }
 
 function diaDisponible(pro: ProfesionalAgenda | null, anio: number, mes: number, dia: number): boolean {
@@ -1502,7 +1521,7 @@ function DetailScreen({ business, onBook, onBack, onLoginRequired }: { business:
                 <div className="flex items-center gap-3 text-sm text-slate-500">
                   <span className="flex items-center gap-1">
                     <svg className="w-3.5 h-3.5 text-teal-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-                    {business.address}
+                    {business.address || business.city}
                   </span>
                 </div>
               </div>
@@ -1523,7 +1542,7 @@ function DetailScreen({ business, onBook, onBack, onLoginRequired }: { business:
                   onClick={() => handleSelectPro(pro)}
                   className={`w-full flex items-center gap-3 p-3 rounded-xl border transition-all text-left ${selectedPro.name === pro.name ? "border-teal-400 bg-teal-50" : "border-slate-100 bg-slate-50 hover:border-slate-200"}`}
                 >
-                  <img src={pro.avatar} alt={pro.name} className="w-11 h-11 rounded-full object-cover bg-slate-200 shrink-0" />
+                  <AvatarProfesional src={pro.avatar} nombre={pro.name} />
                   <div>
                     <p className="text-sm font-semibold text-slate-800">{pro.name}</p>
                     <p className="text-xs text-slate-500">{pro.role}</p>
@@ -1674,7 +1693,7 @@ function FilteredProScreen({
             </div>
             <p className="text-sm text-slate-500 flex items-center gap-1">
               <svg className="w-3.5 h-3.5 text-teal-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-              {business.address}
+              {business.address || business.city}
             </p>
           </div>
         </div>
@@ -1716,7 +1735,7 @@ function FilteredProScreen({
                       onClick={() => setSelectedPro(pro)}
                       className={`w-full flex items-center gap-3 p-3 rounded-xl border transition-all text-left ${isSelected ? "border-teal-400 bg-teal-50" : "border-slate-100 bg-slate-50 hover:border-slate-200"}`}
                     >
-                      <img src={pro.avatar} alt={pro.name} className="w-11 h-11 rounded-full object-cover bg-slate-200 shrink-0" />
+                      <AvatarProfesional src={pro.avatar} nombre={pro.name} />
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-semibold text-slate-800">{pro.name}</p>
                         <p className="text-xs text-slate-500">{pro.role}</p>
