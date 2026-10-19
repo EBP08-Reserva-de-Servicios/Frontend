@@ -27,7 +27,7 @@ interface PreSelected {
   date: string;   // "YYYY-MM-DD"
   time: string;   // "9:00 a.m."
 }
-type CategoryType = "" | "Belleza" | "Salud" | "Deporte" | "Mascotas";
+type CategoryType = "" | "Salud" | "Belleza" | "Bienestar" | "Educación" | "Deporte" | "Mascotas";
 
 interface Business {
   id: number;
@@ -383,11 +383,16 @@ const CITY_TO_DEPARTMENT: Record<string, string> = {
   "Bucaramanga": "Santander",
 };
 
+// Catálogo de la plataforma: categoría -> servicios. Los nombres deben ser IGUALES (letra por letra) a los de la
+// tabla "servicio" del backend (cargar_catalogo_servicios.sql): la categoría de cada oferta se deduce por el nombre.
+// Es la única lista de categorías: la usan el registro de proveedor, los filtros del inicio y las tarjetas.
 const CATEGORY_SERVICES: Record<string, string[]> = {
-  "Belleza": ["Corte de cabello", "Coloración", "Uñas press-on", "Manicure/Pedicure", "Maquillaje", "Depilación"],
-  "Salud": ["Dermatología", "Nutrición", "Psicología clínica", "Medicina estética", "Fisioterapia"],
-  "Deporte": ["Entrenamiento personal", "Clases de yoga", "Fisioterapia deportiva"],
-  "Mascotas": ["Consulta veterinaria", "Baño y peluquería canina", "Vacunación"],
+  "Salud": ["Medicina general", "Dermatología", "Nutrición", "Psicología clínica", "Fisioterapia", "Medicina estética", "Odontología general", "Optometría"],
+  "Belleza": ["Corte de cabello", "Corte y barba", "Coloración", "Keratina", "Manicure/Pedicure", "Manicure semipermanente", "Uñas press-on", "Maquillaje", "Depilación", "Diseño de cejas"],
+  "Bienestar": ["Masaje relajante", "Masaje descontracturante", "Limpieza facial", "Reflexología", "Spa de pies", "Meditación guiada"],
+  "Educación": ["Clases de inglés", "Clases de francés", "Tutoría de matemáticas", "Refuerzo escolar", "Preparación para el ICFES", "Clases de guitarra", "Clases de piano"],
+  "Deporte": ["Entrenamiento personal", "Clases de yoga", "Pilates", "Fisioterapia deportiva", "Clases de natación", "Clases de baile"],
+  "Mascotas": ["Consulta veterinaria", "Consulta veterinaria especializada", "Vacunación", "Desparasitación", "Baño y peluquería canina", "Corte de uñas para mascotas", "Adiestramiento canino"],
 };
 
 const CATEGORIES = Object.keys(CATEGORY_SERVICES) as CategoryType[];
@@ -404,6 +409,8 @@ const CATEGORY_IMAGE_FALLBACKS: Record<string, string> = {
   Belleza: studioEliteImage,
   Deporte: powerfitImage,
   Mascotas: veterinariaHuellitasImage,
+  Bienestar: glowStudioImage,
+  // Educación no tiene foto de respaldo: se muestra el ícono (BusinessImage), nunca la foto de otra categoría.
 };
 
 // Compara nombres de lugares sin tildes, sin mayúsculas y sin "D.C." ("Bogotá D.C." del filtro = "Bogotá" del backend)
@@ -444,13 +451,13 @@ function BusinessImage({
   className: string;
   loading?: "eager" | "lazy";
 }) {
-  const fallback = CATEGORY_IMAGE_FALLBACKS[business.category] ?? clinicaSaludImage;
+  const fallback = CATEGORY_IMAGE_FALLBACKS[business.category] ?? "";
   const [source, setSource] = useState(business.image || fallback);
-  const [showPlaceholder, setShowPlaceholder] = useState(false);
+  const [showPlaceholder, setShowPlaceholder] = useState(!(business.image || fallback));
 
   useEffect(() => {
     setSource(business.image || fallback);
-    setShowPlaceholder(false);
+    setShowPlaceholder(!(business.image || fallback));
   }, [business.image, fallback]);
 
   if (showPlaceholder) {
@@ -484,6 +491,8 @@ function CategoryBadge({ category, service }: { category: string; service?: stri
     "Salud": "bg-blue-50 text-blue-700 border-blue-100",
     "Deporte": "bg-orange-50 text-orange-700 border-orange-100",
     "Mascotas": "bg-emerald-50 text-emerald-700 border-emerald-100",
+    "Bienestar": "bg-violet-50 text-violet-700 border-violet-100",
+    "Educación": "bg-amber-50 text-amber-700 border-amber-100",
   };
   return (
     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border ${colors[category] || "bg-slate-50 text-slate-600 border-slate-100"}`}>
@@ -2715,7 +2724,7 @@ setIsSuccessful(true);
                       className={`w-full rounded-xl border bg-white px-3.5 py-3 text-sm outline-none transition-all focus:ring-4 ${errors.serviceType ? "border-red-400 focus:border-red-500 focus:ring-red-100" : "border-slate-200 focus:border-teal-500 focus:ring-teal-50"}`}
                     >
                       <option value="">Selecciona una categoría</option>
-                      {["Salud", "Belleza", "Bienestar", "Educación", "Otros"].map((category) => <option key={category}>{category}</option>)}
+                      {CATEGORIES.filter(Boolean).map((category) => <option key={category}>{category}</option>)}
                     </select>
                     <div className="min-h-5 pt-1">
                       {errors.serviceType && <p id="serviceType-error" role="alert" className="flex items-center gap-1.5 text-xs font-medium text-red-600"><svg className="h-3.5 w-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>{errors.serviceType}</p>}
@@ -3237,6 +3246,8 @@ function AppointmentCard({ appt }: { appt: Appointment }) {
     "Salud": "bg-blue-50 text-blue-700",
     "Deporte": "bg-orange-50 text-orange-700",
     "Mascotas": "bg-emerald-50 text-emerald-700",
+    "Bienestar": "bg-violet-50 text-violet-700",
+    "Educación": "bg-amber-50 text-amber-700",
   };
   const statusStyles: Record<Appointment["status"], { label: string; className: string }> = {
     pending: { label: "Pendiente", className: "bg-orange-50 text-orange-700" },
@@ -3984,6 +3995,8 @@ function ProviderDashboard({
     "Salud": "bg-blue-50 text-blue-700",
     "Deporte": "bg-orange-50 text-orange-700",
     "Mascotas": "bg-emerald-50 text-emerald-700",
+    "Bienestar": "bg-violet-50 text-violet-700",
+    "Educación": "bg-amber-50 text-amber-700",
   };
 
   // ── Shared section wrapper ──
