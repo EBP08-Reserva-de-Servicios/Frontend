@@ -1293,6 +1293,9 @@ function fechaISO(d: Date): string {
 function useAgendaOferta(ofertaId: number) {
   const [profesionales, setProfesionales] = useState<ProfesionalAgenda[]>([]);
   const [cargando, setCargando] = useState(true);
+  // error = TODAS las consultas fallaron (p. ej. el backend de Render está despertando); no es lo mismo que "sin horarios"
+  const [error, setError] = useState(false);
+  const [intento, setIntento] = useState(0);
   useEffect(() => {
     let vigente = true;
     const hoy = new Date();
@@ -1302,11 +1305,14 @@ function useAgendaOferta(ofertaId: number) {
       return fechaISO(d);
     });
     setCargando(true);
+    setError(false);
     Promise.all(fechas.map((f) =>
-      pedir<DisponibilidadDetalle[]>(`${ENDPOINTS.disponibilidad(ofertaId)}?fecha=${f}`).catch(() => [] as DisponibilidadDetalle[]),
+      pedir<DisponibilidadDetalle[]>(`${ENDPOINTS.disponibilidad(ofertaId)}?fecha=${f}`).catch(() => null),
     ))
-      .then((porDia) => {
+      .then((resultados) => {
         if (!vigente) return;
+        const porDia = resultados.filter((d): d is DisponibilidadDetalle[] => d !== null);
+        setError(porDia.length === 0);
         const mapa = new Map<string, ProfesionalAgenda>();
         porDia.flat().forEach((b) => {
           const id = b.profesional?.id ?? "";
@@ -1331,8 +1337,8 @@ function useAgendaOferta(ofertaId: number) {
       })
       .finally(() => { if (vigente) setCargando(false); });
     return () => { vigente = false; };
-  }, [ofertaId]);
-  return { profesionales, cargando };
+  }, [ofertaId, intento]);
+  return { profesionales, cargando, error, reintentar: () => setIntento((i) => i + 1) };
 }
 
 /** Foto del profesional; si no tiene o no carga, un círculo con sus iniciales (nunca una imagen rota). */
@@ -1457,7 +1463,7 @@ function MiniCalendar({
 
 function DetailScreen({ business, onBook, onBack, onLoginRequired, onChangeOferta }: { business: Business; onBook: (pro: Professional, slot: string, date: string) => void; onBack: () => void; onLoginRequired?: () => void; onChangeOferta?: (oferta: Business) => void }) {
   const today = new Date();
-  const { profesionales, cargando } = useAgendaOferta(business.id);
+  const { profesionales, cargando, error, reintentar } = useAgendaOferta(business.id);
   const [selectedPro, setSelectedPro] = useState<ProfesionalAgenda | null>(null);
   useEffect(() => {
     if (!selectedPro && profesionales.length > 0) setSelectedPro(profesionales[0]);
@@ -1518,9 +1524,7 @@ function DetailScreen({ business, onBook, onBack, onLoginRequired, onChangeOfert
       : slotsDelDia
     : [];
 
-  if (cargando) return <p className="py-20 text-center text-sm text-slate-500">Cargando horarios…</p>;
-  if (profesionales.length === 0) return <p className="py-20 text-center text-sm text-slate-500">Esta empresa no tiene horarios disponibles en las próximas 4 semanas.</p>;
-  if (!selectedPro) return <p className="py-20 text-center text-sm text-slate-500">Cargando horarios…</p>;
+  const variasOfertas = !!(business.ofertas && business.ofertas.length > 1 && onChangeOferta);
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -1579,6 +1583,21 @@ function DetailScreen({ business, onBook, onBack, onLoginRequired, onChangeOfert
         </div>
 
         {/* Professionals + Slots */}
+        {cargando || (!error && profesionales.length > 0 && !selectedPro) ? (
+          <div className="bg-white rounded-2xl p-10 shadow-sm border border-slate-100 text-center text-sm text-slate-500">Cargando horarios…</div>
+        ) : error ? (
+          <div className="bg-white rounded-2xl p-10 shadow-sm border border-slate-100 text-center">
+            <p className="text-sm font-semibold text-slate-700 mb-1">No pudimos cargar los horarios</p>
+            <p className="text-xs text-slate-500 mb-4">El servidor puede estar iniciando. Espera unos segundos y vuelve a intentar.</p>
+            <button type="button" onClick={reintentar} className="rounded-xl bg-teal-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-teal-700">Reintentar</button>
+          </div>
+        ) : !selectedPro ? (
+          <div className="bg-white rounded-2xl p-10 shadow-sm border border-slate-100 text-center">
+            <p className="text-sm font-semibold text-slate-700 mb-1">Este servicio no tiene horarios disponibles en las próximas 4 semanas</p>
+            <p className="text-xs text-slate-500 mb-4">{variasOfertas ? "Elige otro servicio arriba o vuelve más tarde." : "Vuelve más tarde o explora otras empresas."}</p>
+            <button type="button" onClick={onBack} className="rounded-xl border border-slate-200 px-5 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">Volver al inicio</button>
+          </div>
+        ) : (
         <div className="grid sm:grid-cols-2 gap-5 items-start">
           {/* Professionals */}
           <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 flex flex-col">
@@ -1668,6 +1687,7 @@ function DetailScreen({ business, onBook, onBack, onLoginRequired, onChangeOfert
             </button>
           </div>
         </div>
+        )}
       </div>
     </div>
   );
