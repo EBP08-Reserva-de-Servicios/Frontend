@@ -4936,6 +4936,9 @@ function ProfAgenda({
   const DAY_NAMES = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];
   const DAY_INITIALS = ["L", "M", "X", "J", "V", "S", "D"];
   const [modalOpen, setModalOpen] = useState(false);
+  // Evita el doble envío: mientras el backend responde, "Guardar" queda deshabilitado
+  const [guardando, setGuardando] = useState(false);
+  const guardandoRef = useRef(false); // bloquea también dos clics en el mismo instante (antes de que React repinte)
   const [editingId, setEditingId] = useState<string | null>(null);
   const [selectedDays, setSelectedDays] = useState<number[]>([]);
   const [timeRows, setTimeRows] = useState([{ id: 1, start: "08:00", end: "12:00" }]);
@@ -5015,6 +5018,7 @@ function ProfAgenda({
   };
 
   const saveAvailability = async () => {
+    if (guardandoRef.current) return;
     const nextErrors: Record<number, string> = {};
     const parsedRows = timeRows.map((row) => {
       const start = parseTime(row.start);
@@ -5067,6 +5071,8 @@ function ProfAgenda({
       }
     }
 
+    guardandoRef.current = true;
+    setGuardando(true);
     try {
       // El backend no tiene "editar franja": se borra la vieja y se crea la nueva.
       if (editingId) await pedir(`${ENDPOINTS.horario(nit, prof.id)}/${editingId}`, { metodo: "DELETE", conSesion: true });
@@ -5079,6 +5085,9 @@ function ProfAgenda({
     } catch (e) {
       setWarning(e instanceof ErrorApi ? e.mensajes[0] : "No se pudo guardar la disponibilidad.");
       return;
+    } finally {
+      guardandoRef.current = false;
+      setGuardando(false);
     }
     setModalOpen(false);
     setToast("Disponibilidad agregada correctamente");
@@ -5207,7 +5216,7 @@ function ProfAgenda({
             </div>
             <div className="px-6 py-4 border-t border-slate-100 flex gap-3">
               <button onClick={() => setModalOpen(false)} className="flex-1 py-2.5 rounded-xl border border-slate-200 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors">Cancelar</button>
-              <button onClick={saveAvailability} className="flex-1 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-sm font-bold transition-colors">Guardar</button>
+              <button onClick={saveAvailability} disabled={guardando} className="flex-1 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-sm font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed">{guardando ? "Guardando…" : "Guardar"}</button>
             </div>
           </div>
         </div>
