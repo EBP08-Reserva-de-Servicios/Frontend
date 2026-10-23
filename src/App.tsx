@@ -45,6 +45,7 @@ interface Business {
   nit?: number;          // NIT del proveedor
   precio?: number;       // precio de la oferta
   duracion?: number | null; // minutos
+  ofertas?: Business[];  // todas las ofertas (servicios) de la misma empresa; la tarjeta del inicio es UNA por empresa
 }
 
 interface Professional {
@@ -442,6 +443,20 @@ function ofertaANegocio(o: OfertaDetalle): Business {
   };
 }
 
+/**
+ * El backend devuelve OFERTAS (un servicio publicado por un proveedor). En el inicio se muestra UNA tarjeta por
+ * empresa: se agrupan por NIT conservando el orden. La tarjeta usa la primera oferta del grupo y guarda todas en
+ * "ofertas" para que el detalle deje elegir el servicio.
+ */
+function agruparPorEmpresa(ofertas: Business[]): Business[] {
+  const grupos = new Map<string, Business[]>();
+  ofertas.forEach((o) => {
+    const clave = o.nit != null ? String(o.nit) : `oferta-${o.id}`;
+    grupos.set(clave, [...(grupos.get(clave) ?? []), o]);
+  });
+  return [...grupos.values()].map((grupo) => ({ ...grupo[0], ofertas: grupo }));
+}
+
 function BusinessImage({
   business,
   className,
@@ -512,7 +527,7 @@ function BusinessCard({ business, onSelect }: { business: Business; onSelect: ()
       <div className="p-4 flex flex-col flex-1">
         <h3 className="font-display font-700 text-base text-slate-900 mb-2 leading-tight" style={{ fontFamily: "Outfit, sans-serif", fontWeight: 700 }}>{business.name}</h3>
         <div className="mb-3 space-y-1.5">
-          <CategoryBadge category={business.category} />
+          <CategoryBadge category={business.category} service={business.ofertas && business.ofertas.length > 1 ? `${business.ofertas.length} servicios` : undefined} />
           <p className="flex items-center gap-1 text-sm text-slate-500">
             <svg className="w-3.5 h-3.5 text-teal-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
             {business.city}
@@ -1091,7 +1106,7 @@ function HomeScreen({
     return () => { vigente = false; };
   }, [filters.date, filters.time]);
 
-  const filtered = negocios.filter((b) => {
+  const ofertasFiltradas = negocios.filter((b) => {
     if (filters.category && b.category !== filters.category) return false;
     if (filters.service && b.service !== filters.service) return false;
     if (filters.municipality && !mismoLugar(b.city, filters.municipality)) return false;
@@ -1102,6 +1117,7 @@ function HomeScreen({
     if (nameQuery.trim() && !b.name.toLowerCase().includes(nameQuery.trim().toLowerCase())) return false;
     return true;
   });
+  const filtered = agruparPorEmpresa(ofertasFiltradas);
 
   const allActive = (filters.category || filters.service) && (filters.department || filters.municipality) && filters.date && filters.time;
   const displayed = allActive ? filtered.slice(0, 3) : filtered;
@@ -1118,7 +1134,10 @@ function HomeScreen({
     ? `${filtered.length} empresa${filtered.length !== 1 ? "s" : ""} con ${filters.service}`
     : `${displayed.length} resultado${displayed.length !== 1 ? "s" : ""} encontrado${displayed.length !== 1 ? "s" : ""}`;
 
-  const handleCardSelect = (b: Business) => {
+  const handleCardSelect = (tarjeta: Business) => {
+    // Abre la oferta que coincide con los filtros, pero el detalle recibe TODAS las ofertas de la empresa
+    const todas = negocios.filter((o) => o.nit === tarjeta.nit);
+    const b: Business = { ...tarjeta, ofertas: todas.length ? todas : tarjeta.ofertas };
     const pre = (filters.date && filters.time)
       ? { service: filters.service, date: filters.date, time: filters.time }
       : null;
@@ -1436,7 +1455,7 @@ function MiniCalendar({
 
 // ─── Detail Screen ─────────────────────────────────────────────────────────────
 
-function DetailScreen({ business, onBook, onBack, onLoginRequired }: { business: Business; onBook: (pro: Professional, slot: string, date: string) => void; onBack: () => void; onLoginRequired?: () => void }) {
+function DetailScreen({ business, onBook, onBack, onLoginRequired, onChangeOferta }: { business: Business; onBook: (pro: Professional, slot: string, date: string) => void; onBack: () => void; onLoginRequired?: () => void; onChangeOferta?: (oferta: Business) => void }) {
   const today = new Date();
   const { profesionales, cargando } = useAgendaOferta(business.id);
   const [selectedPro, setSelectedPro] = useState<ProfesionalAgenda | null>(null);
@@ -1536,6 +1555,26 @@ function DetailScreen({ business, onBook, onBack, onLoginRequired }: { business:
               </div>
             </div>
             <p className="text-slate-600 text-sm leading-relaxed">{business.description}</p>
+            {business.ofertas && business.ofertas.length > 1 && onChangeOferta && (
+              <div className="mt-5">
+                <p className="text-xs font-bold text-slate-600 uppercase tracking-wide mb-2">Elige el servicio</p>
+                <div className="flex flex-wrap gap-2">
+                  {business.ofertas.map((o) => (
+                    <button
+                      key={o.id}
+                      type="button"
+                      onClick={() => { if (o.id !== business.id) onChangeOferta(o); }}
+                      className={`rounded-xl border px-3 py-2 text-left text-sm transition-colors ${o.id === business.id ? "border-teal-500 bg-teal-50 text-teal-800" : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"}`}
+                    >
+                      <span className="block font-semibold">{o.service}</span>
+                      <span className="block text-xs text-slate-500">
+                        {o.precio != null ? `$${o.precio.toLocaleString("es-CO")}` : ""}{o.duracion ? ` · ${o.duracion} min` : ""}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -5630,7 +5669,14 @@ export default function App() {
       onLogout={handleManualLogout}
     />;
   } else if (screen === "detail" && selectedBusiness) {
-    content = <><DetailScreen business={selectedBusiness} onBook={handleBook} onBack={handleHome} onLoginRequired={!clientName ? () => setShowGuestGate(true) : undefined} />{guestGate}</>;
+    content = <><DetailScreen
+      key={selectedBusiness.id}
+      business={selectedBusiness}
+      onBook={handleBook}
+      onBack={handleHome}
+      onLoginRequired={!clientName ? () => setShowGuestGate(true) : undefined}
+      onChangeOferta={(oferta) => setSelectedBusiness({ ...oferta, ofertas: selectedBusiness.ofertas })}
+    />{guestGate}</>;
   } else if (screen === "select-pro" && selectedBusiness && preSelected) {
     content = <><FilteredProScreen
       business={selectedBusiness}
