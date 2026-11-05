@@ -1299,22 +1299,19 @@ function useAgendaOferta(ofertaId: number) {
   useEffect(() => {
     let vigente = true;
     const hoy = new Date();
-    const fechas = Array.from({ length: 29 }, (_, i) => {
-      const d = new Date(hoy);
-      d.setDate(hoy.getDate() + i);
-      return fechaISO(d);
-    });
+    const fin = new Date(hoy);
+    fin.setDate(hoy.getDate() + 28);
     setCargando(true);
     setError(false);
-    Promise.all(fechas.map((f) =>
-      pedir<DisponibilidadDetalle[]>(`${ENDPOINTS.disponibilidad(ofertaId)}?fecha=${f}`).catch(() => null),
-    ))
-      .then((resultados) => {
+    // Una sola petición con las 4 semanas (antes eran 29, una por día). El backend responde ordenado por fecha y hora.
+    pedir<DisponibilidadDetalle[]>(`${ENDPOINTS.disponibilidad(ofertaId)}?desde=${fechaISO(hoy)}&hasta=${fechaISO(fin)}`)
+      .catch(() => null)
+      .then((bloques) => {
         if (!vigente) return;
-        const porDia = resultados.filter((d): d is DisponibilidadDetalle[] => d !== null);
-        setError(porDia.length === 0);
+        // error = la consulta falló (p. ej. el backend de Render está despertando); no es lo mismo que "sin horarios"
+        setError(bloques === null);
         const mapa = new Map<string, ProfesionalAgenda>();
-        porDia.flat().forEach((b) => {
+        (bloques ?? []).forEach((b) => {
           const id = b.profesional?.id ?? "";
           if (!mapa.has(id)) {
             mapa.set(id, {
