@@ -12,6 +12,7 @@ export const ENDPOINTS = {
   logoProveedor: (nit: string) => `/api/proveedores/${nit}/logo`,
   disponibilidad: (idOferta: string | number) => `/api/disponibilidad/servicio-proveedor/${idOferta}`,
   serviciosProveedor: (nit: string) => `/api/proveedores/${nit}/servicios`,
+  servicioProveedor: (nit: string, idOferta: string | number) => `/api/proveedores/${nit}/servicios/${idOferta}`, // HU-26 (contrato v1.2)
   profesionales: (nit: string) => `/api/proveedores/${nit}/profesionales`,
   horario: (nit: string, profesionalId: string | number) => `/api/proveedores/${nit}/profesionales/${profesionalId}/horario`,
   reservas: "/api/reservas",
@@ -320,6 +321,13 @@ export interface DisponibilidadDetalle {
   id: number;
   profesional: ProfesionalResumen | null;
   servicioProveedor: OfertaDetalle;
+}
+
+/** HU-26: cuerpo de PUT /api/proveedores/{nit}/servicios/{idOferta}. Nombre y categoría no se editan. */
+export interface ServicioProveedorEditarBody {
+  precio: number;
+  duracion: number;
+  descripcion: string;
 }
 
 export function municipioIdPorNombre(
