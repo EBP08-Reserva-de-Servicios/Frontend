@@ -46,7 +46,7 @@ export function cuandoVenzaLaSesion(accion: () => void): void {
   alVencerSesion = accion;
 }
 
-type Opciones = { metodo?: "GET" | "POST" | "DELETE"; cuerpo?: unknown; conSesion?: boolean };
+type Opciones = { metodo?: "GET" | "POST" | "PUT" | "DELETE"; cuerpo?: unknown; conSesion?: boolean };
 
 /** Hace una petición al backend. Lanza ErrorApi si la respuesta no es 2xx. */
 export async function pedir<T>(ruta: string, { metodo = "GET", cuerpo, conSesion = false }: Opciones = {}): Promise<T> {

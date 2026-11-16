@@ -13,7 +13,7 @@ import salonBelleImage from "./assets/businesses/salon-belle.jpg";
 import studioEliteImage from "./assets/businesses/studio-elite-hair.jpg";
 import veterinariaHuellitasImage from "./assets/businesses/veterinaria-huellitas.jpg";
 import { API_BASE_URL, ENDPOINTS, aRegistroCliente, aRegistroProveedor, aLogin, aReserva, aServicioProveedor, aProfesional, aHorario, estadoDesdeBackend, municipioIdPorNombre,
-  type LoginRespuesta, type OfertaDetalle, type DisponibilidadDetalle, type ReservaDetalle, type ReservaCreada, type MunicipioResumen } from "./api/contratoBackend";
+  type LoginRespuesta, type OfertaDetalle, type DisponibilidadDetalle, type ReservaDetalle, type ReservaCreada, type MunicipioResumen, type ServicioProveedorEditarBody } from "./api/contratoBackend";
 import { pedir, ErrorApi, guardarSesion, cerrarSesion, sesionActual, cuandoVenzaLaSesion, aEtiquetaHora, aHoraBackend, aFechaVisible } from "./api/api";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -3943,10 +3943,53 @@ function ProviderDashboard({
   const [removingServiceId, setRemovingServiceId] = useState<string | null>(null);
   const [editPrice, setEditPrice] = useState("");
   const [editDuration, setEditDuration] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  const [editServiceErrors, setEditServiceErrors] = useState<string[]>([]);
+  const [editSaving, setEditSaving] = useState(false);
+  const editDurationIsValid = /^[1-9]\d*$/.test(editDuration);
   const serviceRegisteringRef = useRef(false);
   const newPriceRef = useRef<HTMLInputElement>(null);
   const newDurationRef = useRef<HTMLInputElement>(null);
   const newDescriptionRef = useRef<HTMLTextAreaElement>(null);
+
+  // HU-26: abre "Editar servicio" con los datos actuales de la oferta
+  const abrirEdicionServicio = (s: ProviderService) => {
+    setServiceToast("");
+    setEditPrice(String(s.price));
+    setEditDuration(String(s.duration));
+    setEditDescription(s.description);
+    setEditServiceErrors([]);
+    setEditingServiceId(s.id);
+  };
+
+  const cerrarEdicionServicio = () => {
+    if (editSaving) return;
+    setEditingServiceId(null);
+  };
+
+  // HU-26: guarda en el backend (PUT). Solo precio, duración y descripción; nombre y categoría no cambian.
+  const guardarEdicionServicio = async () => {
+    if (!editingServiceId || editSaving || !editDurationIsValid) return;
+    const descripcion = editDescription.trim();
+    const errors = [
+      ...(!editPrice ? ["El precio es obligatorio."] : Number(editPrice) <= 0 ? ["Ingresa un precio mayor a 0"] : []),
+      ...(!descripcion ? ["La descripción es obligatoria"] : []),
+    ];
+    setEditServiceErrors(errors);
+    if (errors.length > 0) return;
+    setEditSaving(true);
+    try {
+      const cuerpo: ServicioProveedorEditarBody = { precio: Number(editPrice), duracion: Number(editDuration), descripcion };
+      const editada = await pedir<OfertaDetalle>(ENDPOINTS.servicioProveedor(nit, editingServiceId), { metodo: "PUT", conSesion: true, cuerpo });
+      setServices((prev) => prev.map((x) => (x.id === editingServiceId ? ofertaAServicio(editada) : x)));
+      setServiceToast("Servicio actualizado correctamente");
+      setEditingServiceId(null);
+    } catch (e) {
+      setEditServiceErrors(e instanceof ErrorApi && e.mensajes.length > 0 ? e.mensajes : ["No se pudo guardar el servicio. Intenta de nuevo."]);
+    } finally {
+      setEditSaving(false);
+    }
+  };
 
   const filteredCatalog = catalogo.filter((e) => {
     if (catalogCategory && e.category !== catalogCategory) return false;
@@ -4535,61 +4578,86 @@ function ProviderDashboard({
               </div>
             )}
 
-            {/* Edit service modal */}
+            {/* Edit service modal (HU-26: diseño del prototipo, guarda en el backend con PUT) */}
             {editingServiceId && (() => {
               const svc = services.find((x) => x.id === editingServiceId);
               if (!svc) return null;
               return (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-                  <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setEditingServiceId(null)} />
-                  <div className="relative w-full max-w-sm bg-white rounded-2xl shadow-2xl overflow-hidden z-10">
+                  <button type="button" aria-label="Cerrar" className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={cerrarEdicionServicio} />
+                  <div role="dialog" aria-modal="true" aria-labelledby="edit-service-title" className="relative w-full max-w-sm bg-white rounded-2xl shadow-2xl overflow-hidden z-10">
                     <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
                       <div>
-                        <h3 className="font-display text-base font-bold text-slate-900" style={{ fontFamily: "Outfit, sans-serif" }}>Editar servicio</h3>
+                        <h2 id="edit-service-title" className="font-display text-base font-bold text-slate-900" style={{ fontFamily: "Outfit, sans-serif" }}>Editar servicio</h2>
                         <p className="text-xs text-slate-400 mt-0.5">{svc.name}</p>
                       </div>
-                      <button onClick={() => setEditingServiceId(null)} className="w-8 h-8 flex items-center justify-center rounded-xl bg-slate-100 hover:bg-slate-200 transition-colors">
+                      <button onClick={cerrarEdicionServicio} aria-label="Cerrar" className="w-8 h-8 flex items-center justify-center rounded-xl bg-slate-100 hover:bg-slate-200 transition-colors">
                         <svg className="w-4 h-4 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                       </button>
                     </div>
                     <div className="px-5 py-5 space-y-4">
+                      {editServiceErrors.length > 0 && (
+                        <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3">
+                          {editServiceErrors.map((error) => <p key={error} className="text-xs font-medium text-red-700">{error}</p>)}
+                        </div>
+                      )}
+                      <div className="rounded-xl border border-slate-100 bg-slate-50 p-4">
+                        <p className="text-[0.625rem] font-bold uppercase tracking-widest text-slate-400">Información no editable</p>
+                        <div className="mt-3 flex items-center justify-between gap-3">
+                          <p className="text-sm font-semibold text-slate-800">{svc.name}</p>
+                          <CategoryBadge category={svc.category} />
+                        </div>
+                      </div>
                       <div>
-                        <label className="block text-xs font-bold text-slate-600 uppercase tracking-wide mb-1.5">Precio</label>
+                        <label htmlFor="edit-service-price" className="block text-xs font-bold text-slate-600 uppercase tracking-wide mb-1.5">Precio</label>
                         <div className="relative">
                           <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">$</span>
-                          <input autoFocus type="number" min="0" value={editPrice} onChange={(e) => setEditPrice(e.target.value)} className="w-full pl-8 pr-3 py-2.5 text-sm border border-slate-200 rounded-xl outline-none focus:border-teal-400 transition-colors" />
+                          <input id="edit-service-price" autoFocus type="number" min="0" value={editPrice} onChange={(e) => setEditPrice(e.target.value)} className="w-full pl-8 pr-3 py-2.5 text-sm border border-slate-200 rounded-xl outline-none focus:border-teal-400 transition-colors" />
                         </div>
                         {editPrice && Number(editPrice) > 0 && (
                           <p className="text-xs text-teal-600 mt-1 font-medium">${Number(editPrice).toLocaleString("es-CO")}</p>
                         )}
                       </div>
                       <div>
-                        <label className="block text-xs font-bold text-slate-600 uppercase tracking-wide mb-1.5">Duración en minutos</label>
+                        <label htmlFor="edit-service-duration" className="block text-xs font-bold text-slate-600 uppercase tracking-wide mb-1.5">Duración en minutos</label>
                         <div className="relative">
                           <input
-                            type="number"
-                            min="1"
-                            step="1"
+                            id="edit-service-duration"
+                            type="text"
+                            inputMode="numeric"
                             value={editDuration}
-                            onChange={(e) => setEditDuration(e.target.value.replace(/[^0-9]/g, ""))}
+                            onChange={(e) => setEditDuration(e.target.value)}
                             placeholder="Ej. 45"
-                            className={`w-full px-3 py-2.5 text-sm border rounded-xl outline-none focus:border-teal-400 transition-colors ${editDuration !== "" && (Number(editDuration) <= 0 || !Number.isInteger(Number(editDuration))) ? "border-red-300" : "border-slate-200"}`}
+                            aria-invalid={!editDurationIsValid}
+                            aria-describedby={!editDurationIsValid ? "edit-service-duration-error" : undefined}
+                            className={`w-full px-3 py-2.5 text-sm border rounded-xl outline-none focus:border-teal-400 transition-colors ${!editDurationIsValid ? "border-red-300" : "border-slate-200"}`}
                           />
                           <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400 pointer-events-none">min</span>
                         </div>
-                        {editDuration !== "" && (Number(editDuration) <= 0 || !Number.isInteger(Number(editDuration))) && (
-                          <p className="mt-1 text-xs text-red-500">Ingresa un número de minutos mayor a 0</p>
+                        {!editDurationIsValid && (
+                          <p id="edit-service-duration-error" role="alert" className="mt-1 text-xs text-red-500">Ingresa un valor válido: solo números enteros positivos</p>
                         )}
+                      </div>
+                      <div>
+                        <label htmlFor="edit-service-description" className="block text-xs font-bold text-slate-600 uppercase tracking-wide mb-1.5">Descripción</label>
+                        <textarea
+                          id="edit-service-description"
+                          value={editDescription}
+                          onChange={(event) => setEditDescription(event.target.value)}
+                          rows={4}
+                          maxLength={300}
+                          className="w-full resize-none rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none transition-colors focus:border-teal-400"
+                        />
                       </div>
                     </div>
                     <div className="px-5 pb-5 flex gap-3">
-                      <button onClick={() => setEditingServiceId(null)} className="flex-1 py-2.5 text-sm font-semibold border border-slate-200 text-slate-600 rounded-xl hover:bg-slate-50 transition-colors">Cancelar</button>
+                      <button onClick={cerrarEdicionServicio} className="flex-1 py-2.5 text-sm font-semibold border border-slate-200 text-slate-600 rounded-xl hover:bg-slate-50 transition-colors">Cancelar</button>
                       <button
-                        disabled={!editPrice || Number(editPrice) <= 0 || !editDuration || Number(editDuration) <= 0}
-                        onClick={() => { setServices((prev) => prev.map((x) => x.id === editingServiceId ? { ...x, price: Number(editPrice), duration: Number(editDuration) } : x)); setEditingServiceId(null); }}
+                        onClick={guardarEdicionServicio}
+                        disabled={!editDurationIsValid || editSaving}
                         className="flex-1 py-2.5 text-sm font-bold bg-teal-600 hover:bg-teal-700 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed text-white rounded-xl transition-colors"
                       >
-                        Guardar
+                        {editSaving ? "Guardando…" : "Guardar"}
                       </button>
                     </div>
                   </div>
@@ -4852,6 +4920,14 @@ function ProviderDashboard({
                         <h3 className="font-semibold text-slate-900 text-sm leading-tight mb-2">{s.name}</h3>
                         <CategoryBadge category={s.category} />
                       </div>
+                      <button
+                        type="button"
+                        onClick={() => abrirEdicionServicio(s)}
+                        className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-teal-50 hover:text-teal-700"
+                        aria-label={`Editar ${s.name}`}
+                      >
+                        <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.2 5.2l3.6 3.6M4 20l4.4-1 10-10a2.5 2.5 0 00-3.6-3.6l-10 10L4 20z" /></svg>
+                      </button>
                     </div>
                     <p className="line-clamp-3 text-xs leading-relaxed text-slate-500" title={s.description}>{s.description}</p>
                     <div className="flex items-center gap-4 mt-3 pt-3 border-t border-slate-50">
