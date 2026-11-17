@@ -3746,6 +3746,7 @@ function ProviderDashboard({
   // Professionals tab state
   const [addProfOpen, setAddProfOpen] = useState(false);
   const [editProfId, setEditProfId] = useState<string | null>(null);
+  const [profSaving, setProfSaving] = useState(false); // HU-20/HU-29: evita el doble envío mientras guarda
   const [removeProfId, setRemoveProfId] = useState<string | null>(null);
   const [profForm, setProfForm] = useState({ avatar: "", docType: "", docNumber: "", firstName: "", lastName: "", email: "", phone: "" });
   const [profFormServices, setProfFormServices] = useState<string[]>([]);
@@ -3897,23 +3898,27 @@ function ProviderDashboard({
       refs[firstError].current?.focus();
       return;
     }
-    const { firstName, lastName, email, phone } = profForm;
-    const name = `${firstName.trim()} ${lastName.trim()}`;
+    if (profSaving) return;
+    const ids = services.filter((sv) => profFormServices.includes(sv.name)).map((sv) => Number(sv.id));
     if (editProfId) {
-      setProfessionals((prev) => prev.map((p) => p.id === editProfId ? {
-        ...p,
-        name,
-        firstName: firstName.trim(),
-        lastName: lastName.trim(),
-        avatar: profForm.avatar,
-        docType: profForm.docType,
-        docNumber: profForm.docNumber.trim(),
-        email: email.trim(),
-        phone,
-        services: profFormServices,
-      } : p));
+      // HU-20: PUT con el mismo cuerpo del registro. foto = null conserva la actual: solo se envía si se subió una nueva (data URL).
+      const fotoNueva = profForm.avatar.startsWith("data:");
+      setProfSaving(true);
+      try {
+        const editado = await pedir<ProfesionalApi>(ENDPOINTS.profesional(nit, editProfId), {
+          metodo: "PUT", conSesion: true, cuerpo: { ...aProfesional(profForm, ids), foto: fotoNueva ? profForm.avatar : null },
+        });
+        const fila = profesionalAFila(editado, services);
+        // Si cambió la foto, la URL es la misma: se agrega ?v= para que el navegador no muestre la anterior
+        if (fotoNueva && fila.avatar) fila.avatar = `${fila.avatar}?v=${Date.now()}`;
+        setProfessionals((prev) => prev.map((p) => (p.id === editProfId ? { ...fila, schedule: p.schedule, role: p.role } : p)));
+      } catch (e) {
+        setProfFormAlert({ type: "error", message: e instanceof ErrorApi ? e.mensajes.join(" ") : "No se pudieron guardar los cambios." });
+        return;
+      } finally {
+        setProfSaving(false);
+      }
     } else {
-      const ids = services.filter((sv) => profFormServices.includes(sv.name)).map((sv) => Number(sv.id));
       try {
         const creado = await pedir<ProfesionalApi>(ENDPOINTS.profesionales(nit), {
           metodo: "POST", conSesion: true, cuerpo: aProfesional(profForm, ids),
@@ -4473,9 +4478,10 @@ function ProviderDashboard({
                   <div className="px-6 py-4 border-t border-slate-100 shrink-0">
                     <button
                       onClick={handleSaveProf}
-                      className="w-full py-3 bg-teal-600 hover:bg-teal-700 text-white font-bold rounded-xl text-sm transition-colors"
+                      disabled={profSaving}
+                      className="w-full py-3 bg-teal-600 hover:bg-teal-700 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed text-white font-bold rounded-xl text-sm transition-colors"
                     >
-                      {editProfId ? "Guardar cambios" : "Guardar profesional"}
+                      {profSaving ? "Guardando…" : editProfId ? "Guardar cambios" : "Guardar profesional"}
                     </button>
                   </div>
                 </div>
@@ -4546,6 +4552,14 @@ function ProviderDashboard({
                       >
                         <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
                         Ver agenda
+                      </button>
+                      <button
+                        onClick={() => openEditProf(p)}
+                        aria-label={`Editar ${p.name}`}
+                        className="flex items-center gap-1 text-xs font-semibold text-slate-600 hover:text-teal-700 transition-colors"
+                      >
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.2 5.2l3.6 3.6M4 20l4.4-1 10-10a2.5 2.5 0 00-3.6-3.6l-10 10L4 20z" /></svg>
+                        Editar
                       </button>
                     </div>
                   </div>
