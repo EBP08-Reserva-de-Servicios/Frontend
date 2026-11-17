@@ -14,6 +14,7 @@ export const ENDPOINTS = {
   serviciosProveedor: (nit: string) => `/api/proveedores/${nit}/servicios`,
   servicioProveedor: (nit: string, idOferta: string | number) => `/api/proveedores/${nit}/servicios/${idOferta}`, // HU-26 (contrato v1.2)
   profesionales: (nit: string) => `/api/proveedores/${nit}/profesionales`,
+  profesional: (nit: string, profesionalId: string) => `/api/proveedores/${nit}/profesionales/${profesionalId}`, // HU-20 (contrato v1.2)
   horario: (nit: string, profesionalId: string | number) => `/api/proveedores/${nit}/profesionales/${profesionalId}/horario`,
   reservas: "/api/reservas",
   misCitas: "/api/reservas/mias",
