@@ -30,13 +30,18 @@ export function sesionActual(): Sesion | null {
 }
 
 /** Error del backend: código HTTP + mensajes listos para mostrar. */
+/** HU-21: cita que quedaría fuera del horario (409 de PUT/DELETE horario, contrato v1.2). */
+export type ReservaAfectada = { codigo: string; fecha: string; hora: string };
+
 export class ErrorApi extends Error {
   status: number;
   mensajes: string[];
-  constructor(status: number, mensajes: string[]) {
+  reservasAfectadas: ReservaAfectada[];
+  constructor(status: number, mensajes: string[], reservasAfectadas: ReservaAfectada[] = []) {
     super(mensajes[0] ?? `Error ${status}`);
     this.status = status;
     this.mensajes = mensajes;
+    this.reservasAfectadas = reservasAfectadas;
   }
 }
 
@@ -73,9 +78,11 @@ export async function pedir<T>(ruta: string, { metodo = "GET", cuerpo, conSesion
 
   // Errores: {"errores":[...]} en casi todo; TEXTO PLANO en /api/reservas y /api/reservas/mias.
   let mensajes: string[] = [];
+  let reservasAfectadas: ReservaAfectada[] = [];
   try {
     const json = JSON.parse(texto) as ErrorBackend;
     if (Array.isArray(json.errores)) mensajes = json.errores;
+    if (Array.isArray(json.reservasAfectadas)) reservasAfectadas = json.reservasAfectadas;
   } catch {
     if (texto) mensajes = [texto];
   }
@@ -86,7 +93,7 @@ export async function pedir<T>(ruta: string, { metodo = "GET", cuerpo, conSesion
         : "Ocurrió un error. Intenta de nuevo.",
     ];
   }
-  throw new ErrorApi(respuesta.status, mensajes);
+  throw new ErrorApi(respuesta.status, mensajes, reservasAfectadas);
 }
 
 /** "08:30:00" o "08:30" → "8:30 a.m." (formato de las pantallas). */

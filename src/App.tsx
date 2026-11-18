@@ -12,9 +12,9 @@ import powerfitImage from "./assets/businesses/powerfit.jpg";
 import salonBelleImage from "./assets/businesses/salon-belle.jpg";
 import studioEliteImage from "./assets/businesses/studio-elite-hair.jpg";
 import veterinariaHuellitasImage from "./assets/businesses/veterinaria-huellitas.jpg";
-import { API_BASE_URL, ENDPOINTS, aRegistroCliente, aRegistroProveedor, aLogin, aReserva, aServicioProveedor, aProfesional, aHorario, estadoDesdeBackend, municipioIdPorNombre,
+import { API_BASE_URL, ENDPOINTS, aRegistroCliente, aRegistroProveedor, aLogin, aReserva, aServicioProveedor, aProfesional, aHorario, aHorarioCompleto, estadoDesdeBackend, municipioIdPorNombre,
   type LoginRespuesta, type OfertaDetalle, type DisponibilidadDetalle, type ReservaDetalle, type ReservaCreada, type MunicipioResumen, type ServicioProveedorEditarBody } from "./api/contratoBackend";
-import { pedir, ErrorApi, guardarSesion, cerrarSesion, sesionActual, cuandoVenzaLaSesion, aEtiquetaHora, aHoraBackend, aFechaVisible } from "./api/api";
+import { pedir, ErrorApi, type ReservaAfectada, guardarSesion, cerrarSesion, sesionActual, cuandoVenzaLaSesion, aEtiquetaHora, aHoraBackend, aFechaVisible } from "./api/api";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -5036,6 +5036,8 @@ function ProfAgenda({
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [toast, setToast] = useState("");
   const [warning, setWarning] = useState("");
+  // HU-21: citas que el backend dice que quedarían fuera (409 de PUT/DELETE horario)
+  const [reservasAfectadas, setReservasAfectadas] = useState<ReservaAfectada[]>([]);
 
   const professionalBlocks = allBlocks.filter((block) => block.profId === prof.id);
   const availability = professionalBlocks.filter((block) => block.type === "available");
@@ -5056,6 +5058,7 @@ function ProfAgenda({
     setDayError("");
     setRowErrors({});
     setWarning("");
+    setReservasAfectadas([]);
   };
 
   const openAdd = (day?: number) => {
@@ -5161,24 +5164,36 @@ function ProfAgenda({
     guardandoRef.current = true;
     setGuardando(true);
     try {
-      // El backend no tiene "editar franja": se borra la vieja y se crea la nueva.
-      if (editingId) await pedir(`${ENDPOINTS.horario(nit, prof.id)}/${editingId}`, { metodo: "DELETE", conSesion: true });
-      const franjas = await pedir<FranjaApi[]>(ENDPOINTS.horario(nit, prof.id), {
-        metodo: "POST", conSesion: true, cuerpo: aHorario(selectedDays, timeRows),
-      });
-      const nuevos = franjasABloques(franjas, prof.id);
-      const idsNuevos = new Set(nuevos.map((n) => n.id));
-      onBlocksChange([...allBlocks.filter((b) => b.id !== editingId && !idsNuevos.has(b.id)), ...nuevos]);
+      if (editingId) {
+        // HU-21: editar = un solo PUT con el horario completo (todo o nada). Antes era DELETE + POST:
+        // si el POST fallaba, la franja original ya se había borrado. El backend responde 409 con
+        // reservasAfectadas si alguna cita activa quedaría fuera del nuevo horario.
+        const franjas = await pedir<FranjaApi[]>(ENDPOINTS.horario(nit, prof.id), {
+          metodo: "PUT", conSesion: true,
+          cuerpo: aHorarioCompleto(availability.filter((b) => b.id !== editingId), selectedDays, timeRows),
+        });
+        // El PUT devuelve el horario completo: reemplaza todas las franjas de este profesional
+        onBlocksChange([...allBlocks.filter((b) => b.profId !== prof.id || b.type !== "available"), ...franjasABloques(franjas, prof.id)]);
+      } else {
+        const franjas = await pedir<FranjaApi[]>(ENDPOINTS.horario(nit, prof.id), {
+          metodo: "POST", conSesion: true, cuerpo: aHorario(selectedDays, timeRows),
+        });
+        const nuevos = franjasABloques(franjas, prof.id);
+        const idsNuevos = new Set(nuevos.map((n) => n.id));
+        onBlocksChange([...allBlocks.filter((b) => !idsNuevos.has(b.id)), ...nuevos]);
+      }
     } catch (e) {
       setWarning(e instanceof ErrorApi ? e.mensajes[0] : "No se pudo guardar la disponibilidad.");
+      setReservasAfectadas(e instanceof ErrorApi ? e.reservasAfectadas : []);
       return;
     } finally {
       guardandoRef.current = false;
       setGuardando(false);
     }
     setModalOpen(false);
-    setToast("Disponibilidad agregada correctamente");
+    setToast(editingId ? "Disponibilidad actualizada correctamente" : "Disponibilidad agregada correctamente");
     setWarning("");
+    setReservasAfectadas([]);
   };
 
   const requestDelete = (block: AvailabilityBlock) => {
@@ -5194,6 +5209,7 @@ function ProfAgenda({
       return;
     }
     setWarning("");
+    setReservasAfectadas([]);
     setDeleteId(block.id);
   };
 
@@ -5202,6 +5218,7 @@ function ProfAgenda({
       await pedir(`${ENDPOINTS.horario(nit, prof.id)}/${deleteId}`, { metodo: "DELETE", conSesion: true });
     } catch (e) {
       setWarning(e instanceof ErrorApi ? e.mensajes[0] : "No se pudo eliminar la franja.");
+      setReservasAfectadas(e instanceof ErrorApi ? e.reservasAfectadas : []);
       setDeleteId(null);
       return;
     }
@@ -5209,6 +5226,17 @@ function ProfAgenda({
     setDeleteId(null);
     setToast("Disponibilidad eliminada correctamente");
   };
+
+  // HU-21: lista de citas afectadas, con el formato del prototipo ("12 de noviembre de 2026 · 10:00")
+  const listaAfectadas = reservasAfectadas.length > 0 && (
+    <ul className="mt-2 space-y-1 pl-5 text-xs">
+      {reservasAfectadas.map((reserva) => (
+        <li key={reserva.codigo} className="list-disc">
+          {new Date(`${reserva.fecha}T12:00:00`).toLocaleDateString("es-CO", { day: "numeric", month: "long", year: "numeric" })} · {reserva.hora.slice(0, 5)}
+        </li>
+      ))}
+    </ul>
+  );
 
   return (
     <div>
@@ -5299,7 +5327,12 @@ function ProfAgenda({
                   </button>
                 )}
               </div>
-              {warning && <p className="text-xs text-red-500 flex items-start gap-1"><svg className="w-3.5 h-3.5 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>{warning}</p>}
+              {warning && (
+                <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-red-700">
+                  <p className="text-xs flex items-start gap-1"><svg className="w-3.5 h-3.5 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>{warning}</p>
+                  {listaAfectadas}
+                </div>
+              )}
             </div>
             <div className="px-6 py-4 border-t border-slate-100 flex gap-3">
               <button onClick={() => setModalOpen(false)} className="flex-1 py-2.5 rounded-xl border border-slate-200 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors">Cancelar</button>
@@ -5339,7 +5372,7 @@ function ProfAgenda({
       </div>
 
       {toast && <div role="status" className="mb-4 flex items-center gap-2.5 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800"><svg className="h-4 w-4 shrink-0 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>{toast}</div>}
-      {warning && !modalOpen && <div role="alert" className="mb-4 flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800"><svg className="h-4 w-4 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>{warning}</div>}
+      {warning && !modalOpen && <div role="alert" className="mb-4 flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800"><svg className="h-4 w-4 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg><div>{warning}{listaAfectadas}</div></div>}
 
       {availability.length === 0 ? (
         <div className="bg-white rounded-2xl border border-slate-100 shadow-sm flex flex-col items-center justify-center py-20 text-center">

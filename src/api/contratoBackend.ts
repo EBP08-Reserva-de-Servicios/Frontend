@@ -97,6 +97,7 @@ export interface ReservaBody {
 
 export interface ErrorBackend {
   errores: string[];
+  reservasAfectadas?: Array<{ codigo: string; fecha: string; hora: string }>; // HU-21: solo en el 409 de PUT/DELETE horario
 }
 
 export interface MunicipioResumen {
@@ -268,6 +269,22 @@ export function aHorario(
       horaInicio: row.start,
       horaFin: row.end,
     }))),
+  };
+}
+
+/** HU-21: cuerpo del PUT /horario, que REEMPLAZA el horario completo: las franjas que se conservan + las del formulario. */
+export function aHorarioCompleto(
+  conservadas: Array<{ day: number; startH: number; startM: number; endH: number; endM: number }>,
+  selectedDays: number[],
+  timeRows: Array<{ start: string; end: string }>,
+): HorarioBody {
+  const dias: DiaSemana[] = ["LUNES", "MARTES", "MIERCOLES", "JUEVES", "VIERNES", "SABADO", "DOMINGO"];
+  const hhmm = (h: number, m: number) => `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+  return {
+    franjas: [
+      ...conservadas.map((b) => ({ diaSemana: dias[b.day], horaInicio: hhmm(b.startH, b.startM), horaFin: hhmm(b.endH, b.endM) })),
+      ...aHorario(selectedDays, timeRows).franjas,
+    ],
   };
 }
 
