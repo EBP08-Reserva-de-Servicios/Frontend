@@ -5609,7 +5609,6 @@ function ProfAgenda({
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
           {DAY_NAMES.map((dayName, day) => {
             const dayAvailability = availability.filter((block) => block.day === day).sort((first, second) => toMinutes(first.startH, first.startM) - toMinutes(second.startH, second.startM));
-            const dayBookings = bookings.filter((block) => block.day === day).sort((first, second) => toMinutes(first.startH, first.startM) - toMinutes(second.startH, second.startM));
             return (
               <div key={dayName} className="min-h-56 rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
                 <h4 className="text-sm font-bold text-slate-800">{dayName}</h4>
@@ -5642,12 +5641,9 @@ function ProfAgenda({
                     <button onClick={() => openAdd(day)} className="w-full rounded-lg border border-dashed border-slate-200 py-2 text-[11px] font-semibold text-slate-500 hover:border-teal-300 hover:text-teal-600 transition-colors">
                       + Agregar franja
                     </button>
-                    <div className="border-t border-slate-100 pt-3 space-y-2">
-                      {dayBookings.length === 0 ? <p className="text-[11px] text-slate-400">Sin reservas</p> : dayBookings.map((booking) => {
-                        const [client, service] = (booking.label ?? "").split(" · ");
-                        return <div key={booking.id}><p className="text-[11px] font-bold text-slate-700">{fmtHour(booking.startH, booking.startM)} · {service}</p><p className="text-[10px] text-slate-400">{client}</p></div>;
-                      })}
-                    </div>
+                    {/* La lista de citas por día se quitó: el front no recibe las reservas del profesional
+                        (no hay endpoint para el proveedor) y mostraba "Sin reservas" aunque hubiera citas.
+                        La protección real la da el backend (409 con reservasAfectadas, HU-21). */}
                   </div>
                 )}
               </div>
