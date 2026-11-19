@@ -15,12 +15,13 @@ import veterinariaHuellitasImage from "./assets/businesses/veterinaria-huellitas
 import { API_BASE_URL, ENDPOINTS, aRegistroCliente, aRegistroProveedor, aLogin, aReserva, aServicioProveedor, aProfesional, aHorario, aHorarioCompleto, estadoDesdeBackend, municipioIdPorNombre,
   type LoginRespuesta, type OfertaDetalle, type DisponibilidadDetalle, type ReservaDetalle, type ReservaCreada, type MunicipioResumen, type ServicioProveedorEditarBody } from "./api/contratoBackend";
 import { pedir, ErrorApi, type ReservaAfectada, guardarSesion, cerrarSesion, sesionActual, cuandoVenzaLaSesion, aEtiquetaHora, aHoraBackend, aFechaVisible } from "./api/api";
+import type { Notificacion, NotificacionesNoLeidas } from "./api/contratoBackend"; // HU-36
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type Screen = "home" | "detail" | "select-pro" | "confirm" | "confirmed" | "account-type" | "register-client" | "register-provider" | "login" | "client-dashboard" | "my-bookings" | "history" | "provider-dashboard";
 type DashTab = "home" | "dashboard" | "my-bookings" | "history" | "profile";
-type ProviderTab = "dashboard" | "bookings" | "professionals" | "services" | "history" | "profile";
+type ProviderTab = "dashboard" | "bookings" | "professionals" | "services" | "history" | "notifications" | "profile";
 
 interface PreSelected {
   service: string;
@@ -3623,17 +3624,20 @@ function ProviderHeader({
   activeTab,
   onTab,
   onLogout,
+  unreadCount,
 }: {
   providerName: string;
   activeTab: ProviderTab;
   onTab: (t: ProviderTab) => void;
   onLogout: () => void;
+  unreadCount: number;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const tabs: { id: ProviderTab; label: string }[] = [
     { id: "dashboard", label: "Pantalla principal" },
     { id: "professionals", label: "Gestionar profesionales" },
     { id: "services", label: "Gestionar servicios" },
+    { id: "notifications", label: "Notificaciones" },
   ];
 
   return (
@@ -3661,7 +3665,14 @@ function ProviderHeader({
                   : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
               }`}
             >
-              {t.label}
+              <span className="inline-flex items-center gap-1.5">
+                {t.label}
+                {t.id === "notifications" && unreadCount > 0 && (
+                  <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[0.625rem] font-bold text-white" aria-label={`${unreadCount} notificaciones sin leer`}>
+                    {unreadCount}
+                  </span>
+                )}
+              </span>
             </button>
           ))}
         </nav>
@@ -3699,7 +3710,10 @@ function ProviderHeader({
       {menuOpen && (
         <nav className="space-y-1 border-t border-slate-100 bg-white p-3 lg:hidden" aria-label="Menú principal">
           {tabs.map((t) => (
-            <button key={t.id} onClick={() => { setMenuOpen(false); onTab(t.id); }} className={`w-full rounded-xl px-3 py-2.5 text-left text-sm font-medium ${activeTab === t.id ? "bg-teal-50 text-teal-700" : "text-slate-600 hover:bg-slate-50"}`}>{t.label}</button>
+            <button key={t.id} onClick={() => { setMenuOpen(false); onTab(t.id); }} className={`flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-sm font-medium ${activeTab === t.id ? "bg-teal-50 text-teal-700" : "text-slate-600 hover:bg-slate-50"}`}>
+              {t.label}
+              {t.id === "notifications" && unreadCount > 0 && <span aria-label={`${unreadCount} notificaciones sin leer`} className="rounded-full bg-red-500 px-2 py-0.5 text-[0.625rem] font-bold text-white">{unreadCount}</span>}
+            </button>
           ))}
           <button onClick={() => { setMenuOpen(false); onTab("profile"); }} className={`w-full rounded-xl px-3 py-2.5 text-left text-sm font-medium ${activeTab === "profile" ? "bg-teal-50 text-teal-700" : "text-slate-600 hover:bg-slate-50"}`}>Mi perfil</button>
           <button onClick={onLogout} className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-red-600 hover:bg-red-50">
@@ -3730,6 +3744,71 @@ function ProviderDashboard({
   const [professionals, setProfessionals] = useState<ProviderProfessional[]>([]);
   const [services, setServices] = useState<ProviderService[]>([]);
   const [history] = useState<ProviderHistoryItem[]>(MOCK_PROVIDER_HISTORY);
+
+  // ── HU-36: notificaciones de la empresa (solo proveedor; la empresa sale del token) ──
+  const [notifications, setNotifications] = useState<Notificacion[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [notificationsLoading, setNotificationsLoading] = useState(false);
+  const [notificationsError, setNotificationsError] = useState("");
+  const [notificationOrder, setNotificationOrder] = useState<"newest" | "oldest" | "unread" | "read">("newest");
+  const [notificationOrderAnnouncement, setNotificationOrderAnnouncement] = useState("");
+
+  const actualizarNoLeidas = () => {
+    pedir<NotificacionesNoLeidas>(ENDPOINTS.notificacionesNoLeidas, { conSesion: true })
+      .then((respuesta) => setUnreadCount(respuesta.cantidad))
+      .catch(() => { /* si falla, se reintenta en la siguiente consulta */ });
+  };
+
+  const cargarNotificaciones = (silencioso = false) => {
+    if (!silencioso) setNotificationsLoading(true);
+    setNotificationsError("");
+    pedir<Notificacion[]>(ENDPOINTS.notificaciones, { conSesion: true })
+      .then((lista) => setNotifications(lista))
+      .catch((e) => setNotificationsError(e instanceof ErrorApi && e.mensajes[0] ? e.mensajes[0] : "No pudimos cargar tus notificaciones."))
+      .finally(() => setNotificationsLoading(false));
+  };
+
+  // Abrir una notificación la marca como leída (POST) y actualiza el indicador
+  const marcarNotificacionLeida = (notification: Notificacion) => {
+    if (notification.leida) return;
+    setNotifications((prev) => prev.map((n) => (n.id === notification.id ? { ...n, leida: true } : n)));
+    pedir<void>(ENDPOINTS.marcarNotificacionLeida(notification.id), { metodo: "POST", conSesion: true })
+      .catch(() => setNotifications((prev) => prev.map((n) => (n.id === notification.id ? { ...n, leida: false } : n))))
+      .finally(actualizarNoLeidas);
+  };
+
+  // Indicador "sin recargar la página" (HU-36): al entrar al panel y cada 30 segundos
+  useEffect(() => {
+    const intervalo = window.setInterval(actualizarNoLeidas, 30_000);
+    return () => window.clearInterval(intervalo);
+  }, []);
+
+  // Al cambiar de pantalla se vuelve a pedir el contador; en "Notificaciones" también la lista
+  useEffect(() => {
+    actualizarNoLeidas();
+    if (tab === "notifications") cargarNotificaciones();
+  }, [tab]);
+
+  // Si llegan notificaciones nuevas mientras el proveedor está en "Notificaciones", la lista se refresca sola
+  useEffect(() => {
+    if (tab === "notifications") cargarNotificaciones(true);
+  }, [unreadCount]);
+
+  const notificationOrderLabels = {
+    newest: "Más recientes primero",
+    oldest: "Más antiguas primero",
+    unread: "No leídas primero",
+    read: "Leídas primero",
+  } as const;
+  const orderedNotifications = [...notifications].sort((first, second) => {
+    const dateDifference = second.fechaCreacion.localeCompare(first.fechaCreacion);
+    if (notificationOrder === "newest") return dateDifference;
+    if (notificationOrder === "oldest") return -dateDifference;
+    if (first.leida === second.leida) return dateDifference;
+    return notificationOrder === "unread"
+      ? Number(first.leida) - Number(second.leida)
+      : Number(second.leida) - Number(first.leida);
+  });
   const [profile, setProfile] = useState({ company: providerName, email: "proveedor@agendaya.com", phone: "3001234567" });
   const [profileSaved, setProfileSaved] = useState(false);
 
@@ -4123,7 +4202,7 @@ function ProviderDashboard({
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
-      <ProviderHeader providerName={providerName} activeTab={tab} onTab={setTab} onLogout={onLogout} />
+      <ProviderHeader providerName={providerName} activeTab={tab} onTab={setTab} onLogout={onLogout} unreadCount={unreadCount} />
 
       <div className="flex-1 max-w-6xl mx-auto w-full px-4 sm:px-6 py-8">
 
@@ -4963,6 +5042,71 @@ function ProviderDashboard({
               </div>
             )}
           </>
+        )}
+
+        {/* ── Notificaciones (HU-36) ── */}
+        {tab === "notifications" && (
+          <div className="mx-auto max-w-3xl">
+            <Section title="Notificaciones" subtitle="Nuevas citas agendadas por tus clientes" />
+            <div className="mb-4 flex flex-wrap items-center justify-end gap-2">
+              <label htmlFor="notification-order" className="text-sm font-semibold text-slate-600">Ordenar por</label>
+              <select
+                id="notification-order"
+                value={notificationOrder}
+                onChange={(event) => {
+                  const order = event.target.value as typeof notificationOrder;
+                  setNotificationOrder(order);
+                  setNotificationOrderAnnouncement(`Notificaciones ordenadas por ${notificationOrderLabels[order]}`);
+                }}
+                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"
+              >
+                {Object.entries(notificationOrderLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              </select>
+              <span className="sr-only" aria-live="polite" aria-atomic="true">{notificationOrderAnnouncement}</span>
+            </div>
+            {notificationsError ? (
+              <div role="alert" className="rounded-2xl border border-red-200 bg-red-50 px-6 py-8 text-center">
+                <p className="text-sm font-medium text-red-700">{notificationsError}</p>
+                <button type="button" onClick={() => cargarNotificaciones()} className="mt-4 rounded-xl bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700">Reintentar</button>
+              </div>
+            ) : notificationsLoading && notifications.length === 0 ? (
+              <p className="py-20 text-center text-sm text-slate-400" aria-live="polite">Cargando notificaciones…</p>
+            ) : notifications.length === 0 ? (
+              <div className="rounded-2xl border border-slate-100 bg-white px-6 py-20 text-center shadow-sm">
+                <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-100">
+                  <svg className="h-8 w-8 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 17h5l-1.4-1.4A2 2 0 0118 14.2V11a6 6 0 00-4-5.7V5a2 2 0 10-4 0v.3A6 6 0 006 11v3.2a2 2 0 01-.6 1.4L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>
+                </div>
+                <p className="mt-4 text-sm font-medium text-slate-500">No tienes notificaciones</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {orderedNotifications.map((notification) => {
+                  const read = notification.leida;
+                  return (
+                    <button
+                      key={notification.id}
+                      type="button"
+                      onClick={() => marcarNotificacionLeida(notification)}
+                      className={`w-full rounded-2xl border p-5 text-left shadow-sm transition-all hover:shadow-md ${read ? "border-slate-100 bg-white" : "border-teal-200 bg-teal-50/50 font-semibold"}`}
+                    >
+                      <div className="flex items-start gap-3">
+                        {!read && <span className="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full bg-teal-500" aria-hidden="true" />}
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm leading-6 text-slate-700">{notification.mensaje}</p>
+                          <time className="mt-2 block text-xs text-slate-400" dateTime={notification.fechaCreacion}>
+                            {new Date(notification.fechaCreacion).toLocaleString("es-CO", { dateStyle: "long", timeStyle: "short" })}
+                          </time>
+                        </div>
+                        {read
+                          ? <span className="shrink-0 text-[0.625rem] font-semibold text-slate-400">Leída</span>
+                          : <span className="shrink-0 rounded-full bg-teal-100 px-2 py-1 text-[0.625rem] font-bold text-teal-700">Nueva</span>}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         )}
 
         {/* ── Historial ── */}

@@ -18,6 +18,10 @@ export const ENDPOINTS = {
   horario: (nit: string, profesionalId: string | number) => `/api/proveedores/${nit}/profesionales/${profesionalId}/horario`,
   reservas: "/api/reservas",
   misCitas: "/api/reservas/mias",
+  // Sprint 3 — HU-06 / HU-36 (contrato v1.2): notificaciones del proveedor
+  notificaciones: "/api/notificaciones",
+  notificacionesNoLeidas: "/api/notificaciones/no-leidas",
+  marcarNotificacionLeida: (id: number) => `/api/notificaciones/${id}/leida`,
 } as const;
 
 export interface RegistroClienteBody {
@@ -358,4 +362,30 @@ export function municipioIdPorNombre(
   return municipios.find(
     (m) => normalizar(m.nombre) === normalizar(ciudad) && normalizar(m.departamento.nombre) === normalizar(departamento),
   )?.codigo;
+}
+
+// ─── Sprint 3 — HU-06 / HU-36 (contrato v1.2) ─────────────────────────────────
+
+/** GET /api/notificaciones (solo proveedor). "mensaje" llega ya armado: mostrarlo tal cual. */
+export interface Notificacion {
+  fechaCreacion: string; // "AAAA-MM-DDTHH:mm:ss" (hora de Colombia)
+  id: number;
+  leida: boolean;
+  mensaje: string;
+  reserva: {
+    cliente: { apellidos: string; nombres: string; numeroDocumento: string } | null;
+    codigo: string;
+    estado: EstadoReserva;
+    fecha: string;           // "AAAA-MM-DD"
+    hora: string;            // "HH:mm:ss"
+    horaFin: string | null;  // "HH:mm:ss"
+    profesional: ProfesionalResumen | null;
+    servicio: string | null;
+  } | null;
+  tipo: "CITA_AGENDADA" | string; // en este sprint solo "CITA_AGENDADA"
+}
+
+/** GET /api/notificaciones/no-leidas */
+export interface NotificacionesNoLeidas {
+  cantidad: number;
 }
