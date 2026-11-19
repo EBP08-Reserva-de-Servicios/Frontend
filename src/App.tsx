@@ -16,6 +16,7 @@ import { API_BASE_URL, ENDPOINTS, aRegistroCliente, aRegistroProveedor, aLogin, 
   type LoginRespuesta, type OfertaDetalle, type DisponibilidadDetalle, type ReservaDetalle, type ReservaCreada, type MunicipioResumen, type ServicioProveedorEditarBody } from "./api/contratoBackend";
 import { pedir, ErrorApi, type ReservaAfectada, guardarSesion, cerrarSesion, sesionActual, cuandoVenzaLaSesion, aEtiquetaHora, aHoraBackend, aFechaVisible } from "./api/api";
 import type { Notificacion, NotificacionesNoLeidas } from "./api/contratoBackend"; // HU-36
+import type { PerfilRespuesta } from "./api/contratoBackend"; // HU-10
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -3344,24 +3345,58 @@ function AppointmentCard({ appt }: { appt: Appointment }) {
 
 // ─── Client Dashboard ──────────────────────────────────────────────────────────
 
+// ─── HU-10: Mi perfil (solo lectura, datos de GET /api/perfil) ─────────────────
+
+function PerfilCampos({ campos }: { campos: Array<[string, string]> }) {
+  return (
+    <dl className="grid gap-5 sm:grid-cols-2">
+      {campos.map(([label, value]) => (
+        <div key={label}>
+          <dt className="text-[0.6875rem] font-bold uppercase tracking-wide text-slate-400">{label}</dt>
+          <dd className="mt-1 break-words text-sm font-medium text-slate-800">{value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+function PerfilEstado({ error, onReintentar }: { error: string; onReintentar: () => void }) {
+  return error ? (
+    <div role="alert" className="rounded-2xl border border-red-200 bg-red-50 px-6 py-8 text-center">
+      <p className="text-sm font-medium text-red-700">{error}</p>
+      <button type="button" onClick={onReintentar} className="mt-4 rounded-xl bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700">Reintentar</button>
+    </div>
+  ) : (
+    <div role="status" className="rounded-2xl border border-slate-100 bg-white px-6 py-10 text-center text-sm text-slate-500">Cargando tu perfil…</div>
+  );
+}
+
 function ClientDashboard({
   clientName,
   appointments,
   initialTab,
   onExplore,
   onLogout,
-  onDirtyChange,
 }: {
   clientName: string;
   appointments: Appointment[];
   initialTab: DashTab;
   onExplore: () => void;
   onLogout: () => void;
-  onDirtyChange: (dirty: boolean) => void;
 }) {
   const [tab, setTab] = useState<DashTab>(initialTab);
-  const [profile, setProfile] = useState({ name: clientName, email: "cliente@agendaya.com", phone: "3001234567" });
-  const [profileSaved, setProfileSaved] = useState(false);
+  // HU-10: perfil de solo lectura; se pide al backend cada vez que se abre "Mi perfil"
+  const [perfil, setPerfil] = useState<PerfilRespuesta["cliente"]>(null);
+  const [perfilError, setPerfilError] = useState("");
+  const cargarPerfil = () => {
+    setPerfilError("");
+    pedir<PerfilRespuesta>(ENDPOINTS.perfil, { conSesion: true })
+      .then((respuesta) => setPerfil(respuesta.cliente))
+      .catch((e) => setPerfilError(e instanceof ErrorApi && e.mensajes[0] ? e.mensajes[0] : "No pudimos cargar tu perfil."));
+  };
+  useEffect(() => {
+    if (tab === "profile") cargarPerfil();
+  }, [tab]);
   const hasNoReservations = clientName === "Sin reservas";
   const visibleAppointments = (hasNoReservations ? [] : appointments).slice().sort((first, second) => {
     const firstIsPast = first.status === "completed" || first.status === "cancelled";
@@ -3392,12 +3427,6 @@ function ClientDashboard({
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
   }, []);
-
-  const updateProfile = (field: keyof typeof profile, value: string) => {
-    setProfile((current) => ({ ...current, [field]: value }));
-    setProfileSaved(false);
-    onDirtyChange(true);
-  };
 
   const today = new Date().toLocaleDateString("es-CO", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 
@@ -3468,15 +3497,29 @@ function ClientDashboard({
           <div className="mx-auto max-w-xl">
             <div className="mb-6">
               <h2 className="font-display text-2xl font-bold text-slate-900">Mi perfil</h2>
-              <p className="mt-1 text-sm text-slate-500">Actualiza tus datos personales y guarda los cambios.</p>
+              <p className="mt-1 text-sm text-slate-500">Consulta los datos asociados a tu cuenta.</p>
             </div>
-            {profileSaved && <div className="mb-4"><InlineAlert type="success" message="Tus cambios se guardaron correctamente." /></div>}
-            <div className="space-y-4 rounded-2xl border border-slate-100 bg-white p-6 shadow-sm">
-              <TextField label="Nombre completo" value={profile.name} onChange={(value) => updateProfile("name", value)} placeholder="Nombre completo" />
-              <TextField label="Correo electrónico" value={profile.email} onChange={(value) => updateProfile("email", value)} placeholder="correo@ejemplo.com" type="email" />
-              <TextField label="Número de celular" value={profile.phone} onChange={(value) => updateProfile("phone", value.replace(/\D/g, ""))} placeholder="3001234567" type="tel" />
-              <button onClick={() => { onDirtyChange(false); setProfileSaved(true); }} className="w-full rounded-xl bg-teal-600 py-3 text-sm font-bold text-white hover:bg-teal-700 focus:outline-none focus:ring-4 focus:ring-teal-200">Guardar cambios</button>
-            </div>
+            {!perfil ? <PerfilEstado error={perfilError} onReintentar={cargarPerfil} /> : (
+              <div className="rounded-2xl border border-slate-100 bg-white p-6 shadow-sm">
+                <div className="mb-6 flex items-center gap-4 border-b border-slate-100 pb-6">
+                  <div aria-hidden="true" className="flex h-16 w-16 items-center justify-center rounded-full bg-teal-100 text-xl font-bold text-teal-700">
+                    {`${perfil.nombres[0] ?? ""}${perfil.apellidos[0] ?? ""}`.toUpperCase()}
+                  </div>
+                  <div>
+                    <p className="font-display text-lg font-bold text-slate-900">{perfil.nombres} {perfil.apellidos}</p>
+                    <p className="mt-0.5 text-xs text-slate-400">Perfil de cliente</p>
+                  </div>
+                </div>
+                <PerfilCampos campos={[
+                  ["Nombres", perfil.nombres],
+                  ["Apellidos", perfil.apellidos],
+                  ["Celular", perfil.telefono],
+                  ["Correo electrónico", perfil.correo],
+                  ["Tipo de documento", perfil.tipoDocumento ?? "No registrado"],
+                  ["Número de documento", perfil.numeroDocumento],
+                ]} />
+              </div>
+            )}
           </div>
         )}
 
@@ -3731,11 +3774,9 @@ function ProviderHeader({
 function ProviderDashboard({
   providerName,
   onLogout,
-  onDirtyChange,
 }: {
   providerName: string;
   onLogout: () => void;
-  onDirtyChange: (dirty: boolean) => void;
 }) {
   const nit = sesionActual()?.cuenta.id ?? "";
   const [tab, setTab] = useState<ProviderTab>("dashboard");
@@ -3809,14 +3850,19 @@ function ProviderDashboard({
       ? Number(first.leida) - Number(second.leida)
       : Number(second.leida) - Number(first.leida);
   });
-  const [profile, setProfile] = useState({ company: providerName, email: "proveedor@agendaya.com", phone: "3001234567" });
-  const [profileSaved, setProfileSaved] = useState(false);
-
-  const updateProfile = (field: keyof typeof profile, value: string) => {
-    setProfile((current) => ({ ...current, [field]: value }));
-    setProfileSaved(false);
-    onDirtyChange(true);
+  // HU-10: perfil de la empresa, solo lectura; se pide al backend cada vez que se abre "Mi perfil"
+  const [perfil, setPerfil] = useState<PerfilRespuesta["proveedor"]>(null);
+  const [perfilError, setPerfilError] = useState("");
+  const [logoFallo, setLogoFallo] = useState(false);
+  const cargarPerfil = () => {
+    setPerfilError("");
+    pedir<PerfilRespuesta>(ENDPOINTS.perfil, { conSesion: true })
+      .then((respuesta) => { setPerfil(respuesta.proveedor); setLogoFallo(false); })
+      .catch((e) => setPerfilError(e instanceof ErrorApi && e.mensajes[0] ? e.mensajes[0] : "No pudimos cargar tu perfil."));
   };
+  useEffect(() => {
+    if (tab === "profile") cargarPerfil();
+  }, [tab]);
 
   const [agendaProfId, setAgendaProfId] = useState<string | null>(null);
   const [availBlocks, setAvailBlocks] = useState<AvailabilityBlock[]>([]);
@@ -5132,15 +5178,50 @@ function ProviderDashboard({
         )}
 
         {tab === "profile" && (
-          <div className="mx-auto max-w-xl">
-            <Section title="Mi perfil" subtitle="Actualiza los datos principales de tu empresa." />
-            {profileSaved && <div className="mb-4"><InlineAlert type="success" message="Tus cambios se guardaron correctamente." /></div>}
-            <div className="space-y-4 rounded-2xl border border-slate-100 bg-white p-6 shadow-sm">
-              <TextField label="Nombre de la empresa" value={profile.company} onChange={(value) => updateProfile("company", value)} placeholder="Nombre de la empresa" />
-              <TextField label="Correo de atención" value={profile.email} onChange={(value) => updateProfile("email", value)} placeholder="contacto@empresa.com" type="email" />
-              <TextField label="Teléfono de atención" value={profile.phone} onChange={(value) => updateProfile("phone", value.replace(/\D/g, ""))} placeholder="3001234567" type="tel" />
-              <button onClick={() => { onDirtyChange(false); setProfileSaved(true); }} className="w-full rounded-xl bg-teal-600 py-3 text-sm font-bold text-white hover:bg-teal-700 focus:outline-none focus:ring-4 focus:ring-teal-200">Guardar cambios</button>
-            </div>
+          <div className="mx-auto max-w-3xl">
+            <Section title="Mi perfil" subtitle="Consulta los datos asociados a tu empresa." />
+            {!perfil ? <PerfilEstado error={perfilError} onReintentar={cargarPerfil} /> : (
+              <div className="rounded-2xl border border-slate-100 bg-white p-6 shadow-sm">
+                <div className="mb-6 flex items-center gap-4 border-b border-slate-100 pb-6">
+                  {perfil.logoUrl && !logoFallo ? (
+                    <img src={`${API_BASE_URL}${perfil.logoUrl}`} onError={() => setLogoFallo(true)} alt={perfil.razonSocial} className="h-16 w-16 rounded-2xl object-cover" />
+                  ) : (
+                    <div role="img" aria-label={perfil.razonSocial} className="flex h-16 w-16 items-center justify-center rounded-2xl bg-teal-100 text-lg font-bold text-teal-700">
+                      <span aria-hidden="true">{perfil.razonSocial.split(/\s+/).map((palabra) => palabra[0]).slice(0, 2).join("").toUpperCase()}</span>
+                    </div>
+                  )}
+                  <div>
+                    <p className="font-display text-xl font-bold text-slate-900">{perfil.razonSocial}</p>
+                    <p className="mt-1 text-sm text-slate-500">{perfil.tipoServicio}</p>
+                  </div>
+                </div>
+                <section>
+                  <h3 className="text-xs font-bold uppercase tracking-widest text-slate-400">Información de la empresa</h3>
+                  <div className="mt-4">
+                    <PerfilCampos campos={[
+                      ["Tipo de servicios", perfil.tipoServicio],
+                      ["Nombre de la empresa", perfil.razonSocial],
+                      ["NIT", String(perfil.nit)],
+                      ["Ciudad", perfil.municipio?.nombre ?? "No registrada"],
+                      ["Departamento", perfil.municipio?.departamento.nombre ?? "No registrado"],
+                      ["Teléfono de atención", perfil.telefono],
+                      ["Correo de atención", perfil.correo],
+                    ]} />
+                  </div>
+                </section>
+                <section className="mt-7 border-t border-slate-100 pt-6">
+                  <h3 className="text-xs font-bold uppercase tracking-widest text-slate-400">Representante legal</h3>
+                  <div className="mt-4">
+                    <PerfilCampos campos={[
+                      ["Nombres", perfil.representante?.nombres ?? "No registrado"],
+                      ["Apellidos", perfil.representante?.apellidos ?? "No registrado"],
+                      ["Documento", perfil.representante?.documento ?? "No registrado"],
+                      ["Celular", perfil.representante?.celular ?? "No registrado"],
+                    ]} />
+                  </div>
+                </section>
+              </div>
+            )}
           </div>
         )}
 
@@ -5930,11 +6011,11 @@ export default function App() {
     />;
   } else if (screen === "provider-dashboard") {
     content = isAuthenticated
-      ? <ProviderDashboard providerName={clientName} onLogout={handleManualLogout} onDirtyChange={setHasUnsavedChanges} />
+      ? <ProviderDashboard providerName={clientName} onLogout={handleManualLogout} />
       : <RedirectingScreen />;
   } else if (screen === "client-dashboard") {
     content = isAuthenticated
-      ? <ClientDashboard clientName={clientName} appointments={clientAppointments} initialTab={clientDashboardTab} onExplore={() => setScreen("home")} onLogout={handleManualLogout} onDirtyChange={setHasUnsavedChanges} />
+      ? <ClientDashboard clientName={clientName} appointments={clientAppointments} initialTab={clientDashboardTab} onExplore={() => setScreen("home")} onLogout={handleManualLogout} />
       : <RedirectingScreen />;
   } else if (screen === "home") {
     content = <HomeScreen
