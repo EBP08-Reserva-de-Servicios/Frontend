@@ -22,6 +22,8 @@ export const ENDPOINTS = {
   notificaciones: "/api/notificaciones",
   notificacionesNoLeidas: "/api/notificaciones/no-leidas",
   marcarNotificacionLeida: (id: number) => `/api/notificaciones/${id}/leida`,
+  // Sprint 3 — HU-10: perfil propio (la cuenta sale del token)
+  perfil: "/api/perfil",
 } as const;
 
 export interface RegistroClienteBody {
@@ -383,6 +385,30 @@ export interface Notificacion {
     servicio: string | null;
   } | null;
   tipo: "CITA_AGENDADA" | string; // en este sprint solo "CITA_AGENDADA"
+}
+
+/** HU-10: GET /api/perfil. Según el rol llega lleno "cliente" o "proveedor"; el otro viene en null. */
+export interface PerfilRespuesta {
+  cliente: {
+    apellidos: string;
+    correo: string;
+    id: string;
+    nombres: string;
+    numeroDocumento: string;
+    telefono: string;
+    tipoDocumento: string | null;
+  } | null;
+  proveedor: {
+    correo: string;
+    logoUrl: string | null; // "/api/proveedores/{nit}/logo" (relativa a API_BASE_URL)
+    municipio: MunicipioResumen | null;
+    nit: number;
+    razonSocial: string;
+    representante: { apellidos: string; celular: string; documento: string; nombres: string } | null;
+    telefono: string;
+    tipoServicio: string;
+  } | null;
+  rol: "CLIENTE" | "PROVEEDOR";
 }
 
 /** GET /api/notificaciones/no-leidas */
