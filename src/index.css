@@ -77,3 +77,53 @@ h1, h2, h3, h4, h5, h6, .font-display {
 *:hover {
   scrollbar-color: #CBD5E1 transparent;
 }
+
+:where(button, a, input, select, textarea, [tabindex]):focus-visible {
+  outline: 3px solid #0D9488;
+  outline-offset: 2px;
+}
+
+label:has(input:focus-visible) {
+  outline: 3px solid #0D9488;
+  outline-offset: 2px;
+}
+
+@media (min-width: 1px) {
+  html {
+    font-size: 100%;
+  }
+}
+
+html:not([data-font-scale="100"]) header > div {
+  height: auto;
+  min-height: 4rem;
+  flex-wrap: wrap;
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
+}
+
+html:not([data-font-scale="100"]) :where(p, span, button, label, dt, dd, h1, h2, h3, h4) {
+  overflow-wrap: anywhere;
+}
+
+html:not([data-font-scale="100"]) :where(button, input, select, textarea) {
+  min-width: 0;
+}
+
+html:not([data-font-scale="100"]) .truncate,
+html:not([data-font-scale="100"]) .line-clamp-3 {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  -webkit-line-clamp: unset;
+}
+
+html:is([data-font-scale="150"], [data-font-scale="175"], [data-font-scale="200"]) .a11y-responsive-grid {
+  grid-template-columns: minmax(0, 1fr) !important;
+}
+
+html:is([data-font-scale="150"], [data-font-scale="175"], [data-font-scale="200"]) :where(.session-floating-action, .session-timer) {
+  position: static;
+  margin: 1rem;
+  width: fit-content;
+}
