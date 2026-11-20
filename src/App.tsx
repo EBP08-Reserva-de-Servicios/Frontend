@@ -518,6 +518,79 @@ function CategoryBadge({ category, service }: { category: string; service?: stri
   );
 }
 
+const FONT_SIZES = [100, 125, 150, 175, 200] as const;
+
+function FontSizeControls({
+  value,
+  onDecrease,
+  onIncrease,
+  onReset,
+  announcement,
+}: {
+  value: number;
+  onDecrease: () => void;
+  onIncrease: () => void;
+  onReset: () => void;
+  announcement: string;
+}) {
+  return (
+    <aside aria-label="Controles de tamaño de letra" className="relative z-[75] flex w-full flex-wrap items-center justify-end gap-1 border-b border-slate-200 bg-white px-3 py-1.5 shadow-sm">
+      <button type="button" onClick={onDecrease} disabled={value === 100} aria-label="Disminuir tamaño de letra" className="min-h-9 rounded-lg px-2.5 text-xs font-bold text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40">A−</button>
+      <button type="button" onClick={onIncrease} aria-label="Aumentar tamaño de letra" className="min-h-9 rounded-lg px-2.5 text-sm font-bold text-teal-700 hover:bg-teal-50">A+</button>
+      <button type="button" onClick={onReset} disabled={value === 100} aria-label="Restablecer" className="min-h-9 rounded-lg px-2.5 text-xs font-semibold text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40">Restablecer</button>
+      <span className="min-w-12 px-1 text-center text-xs font-semibold tabular-nums text-slate-500" aria-hidden="true">{value}%</span>
+      <span className={`${announcement ? "basis-full px-2 pb-1 text-right text-xs font-medium text-amber-700" : "sr-only"}`} aria-live="polite" aria-atomic="true">{announcement}</span>
+    </aside>
+  );
+}
+
+function useDialogFocus(open: boolean, onClose: () => void) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  useEffect(() => {
+    if (!open) return;
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    const dialog = dialogRef.current;
+    const focusableSelector = "button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])";
+    const frame = window.requestAnimationFrame(() => {
+      dialog?.querySelector<HTMLElement>(focusableSelector)?.focus();
+    });
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onCloseRef.current();
+        return;
+      }
+      if (event.key !== "Tab" || !dialog) return;
+      const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(focusableSelector));
+      if (focusable.length === 0) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      document.removeEventListener("keydown", handleKeyDown);
+      previouslyFocused?.focus();
+    };
+  }, [open]);
+
+  return dialogRef;
+}
+
 // ─── BusinessCard ──────────────────────────────────────────────────────────────
 
 function BusinessCard({ business, onSelect }: { business: Business; onSelect: () => void }) {
@@ -657,7 +730,7 @@ function Combobox({
                     {subtitleMap?.[opt] ? (
                       <span className="flex flex-col gap-0">
                         <span>{opt}</span>
-                        <span className="text-[11px] text-slate-400 font-normal">{subtitleMap[opt]}</span>
+                        <span className="text-[0.6875rem] text-slate-400 font-normal">{subtitleMap[opt]}</span>
                       </span>
                     ) : opt}
                   </button>
@@ -725,7 +798,7 @@ function Combobox({
                   {subtitleMap?.[opt] ? (
                     <span className="flex flex-col gap-0">
                       <span>{opt}</span>
-                      <span className="text-[11px] text-slate-400 font-normal">{subtitleMap[opt]}</span>
+                      <span className="text-[0.6875rem] text-slate-400 font-normal">{subtitleMap[opt]}</span>
                     </span>
                   ) : opt}
                 </button>
@@ -760,6 +833,7 @@ function FilterBar({
   showMobilePanel: boolean;
   setShowMobilePanel: (v: boolean) => void;
 }) {
+  const mobileDialogRef = useDialogFocus(showMobilePanel, () => setShowMobilePanel(false));
   const activeCount = [filters.category, filters.service, filters.department, filters.municipality, filters.date, filters.time].filter(Boolean).length;
   const municipios = filters.department ? COLOMBIA_GEO[filters.department] ?? [] : [];
 
@@ -801,7 +875,7 @@ function FilterBar({
         {/* Categoría + Servicio grouped block */}
         <div className="flex-[1.8] min-w-0 flex divide-x divide-slate-100">
           <div className="flex-1 min-w-0 px-4 py-3">
-            <label className="block text-[10px] font-semibold text-teal-500 mb-1 uppercase tracking-wide">Categoría</label>
+            <label className="block text-[0.625rem] font-semibold text-teal-500 mb-1 uppercase tracking-wide">Categoría</label>
             <Combobox
               inBar
               label="Categoría"
@@ -812,7 +886,7 @@ function FilterBar({
             />
           </div>
           <div className="flex-1 min-w-0 px-4 py-3">
-            <label className="block text-[10px] font-semibold text-teal-500 mb-1 uppercase tracking-wide">Servicio</label>
+            <label className="block text-[0.625rem] font-semibold text-teal-500 mb-1 uppercase tracking-wide">Servicio</label>
             <Combobox
               inBar
               label="Servicio"
@@ -828,7 +902,7 @@ function FilterBar({
         {/* Lugar — Departamento + Municipio grouped */}
         <div className="flex-[1.8] min-w-0 flex divide-x divide-slate-100">
           <div className="flex-1 min-w-0 px-4 py-3">
-            <label className="block text-[10px] font-semibold text-teal-500 mb-1 uppercase tracking-wide">Departamento</label>
+            <label className="block text-[0.625rem] font-semibold text-teal-500 mb-1 uppercase tracking-wide">Departamento</label>
             <Combobox
               inBar
               label="Departamento"
@@ -839,7 +913,7 @@ function FilterBar({
             />
           </div>
           <div className="flex-1 min-w-0 px-4 py-3">
-            <label className="block text-[10px] font-semibold text-teal-500 mb-1 uppercase tracking-wide">Municipio</label>
+            <label className="block text-[0.625rem] font-semibold text-teal-500 mb-1 uppercase tracking-wide">Municipio</label>
             <Combobox
               inBar
               label="Municipio"
@@ -855,7 +929,7 @@ function FilterBar({
 
         {/* Fecha */}
         <div className="flex-1 min-w-0 px-4 py-3 relative">
-          <label className="block text-[10px] font-semibold text-slate-500 mb-1 uppercase tracking-wide">Fecha</label>
+          <label className="block text-[0.625rem] font-semibold text-slate-500 mb-1 uppercase tracking-wide">Fecha</label>
           <div className="flex items-center gap-1">
             <input
               type="date"
@@ -875,7 +949,7 @@ function FilterBar({
 
         {/* Hora */}
         <div className="flex-1 min-w-0 px-4 py-3">
-          <label className="block text-[10px] font-semibold text-slate-500 mb-1 uppercase tracking-wide">Hora</label>
+          <label className="block text-[0.625rem] font-semibold text-slate-500 mb-1 uppercase tracking-wide">Hora</label>
           <Combobox
             inBar
             label="Hora"
@@ -909,9 +983,9 @@ function FilterBar({
       {showMobilePanel && (
         <div className="fixed inset-0 z-50 flex items-end">
           <div className="absolute inset-0 bg-black/40" onClick={() => setShowMobilePanel(false)} />
-          <div className="relative w-full bg-white rounded-t-2xl p-6 space-y-4 z-10 max-h-[85vh] overflow-y-auto">
+          <div ref={mobileDialogRef} role="dialog" aria-modal="true" aria-labelledby="mobile-filters-title" tabIndex={-1} className="relative w-full bg-white rounded-t-2xl p-6 space-y-4 z-10 max-h-[85vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-2">
-              <h3 className="font-display text-lg font-bold text-slate-900" style={{ fontFamily: "Outfit, sans-serif" }}>Filtros</h3>
+              <h3 id="mobile-filters-title" className="font-display text-lg font-bold text-slate-900" style={{ fontFamily: "Outfit, sans-serif" }}>Filtros</h3>
               <button onClick={() => setShowMobilePanel(false)} className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-100">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
               </button>
@@ -920,7 +994,7 @@ function FilterBar({
             {/* Categoría + Servicio — bloque agrupado */}
             <div className="rounded-xl border border-slate-200 overflow-visible divide-y divide-slate-100">
               <div className="px-3 pt-2 pb-1">
-                <span className="text-[10px] font-bold text-teal-600 uppercase tracking-widest">Tipo de servicio</span>
+                <span className="text-[0.625rem] font-bold text-teal-600 uppercase tracking-widest">Tipo de servicio</span>
               </div>
               <div className="p-3">
                 <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wide">Categoría</label>
@@ -935,7 +1009,7 @@ function FilterBar({
             {/* Lugar — dos campos apilados con separador visual */}
             <div className="rounded-xl border border-slate-200 overflow-visible divide-y divide-slate-100">
               <div className="px-3 pt-2 pb-1">
-                <span className="text-[10px] font-bold text-teal-600 uppercase tracking-widest">Lugar</span>
+                <span className="text-[0.625rem] font-bold text-teal-600 uppercase tracking-widest">Lugar</span>
               </div>
               <div className="p-3">
                 <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wide">Departamento</label>
@@ -1084,6 +1158,7 @@ function HomeScreen({
   const [nameQuery, setNameQuery] = useState(initialSnapshot?.nameQuery ?? "");
   const [showMobilePanel, setShowMobilePanel] = useState(false);
   const [showLoginGate, setShowLoginGate] = useState(false);
+  const loginGateRef = useDialogFocus(showLoginGate, () => setShowLoginGate(false));
   const [guestMode, setGuestMode] = useState(false);
   const [pendingBusiness, setPendingBusiness] = useState<{ b: Business; pre: PreSelected | null } | null>(null);
 
@@ -1190,13 +1265,13 @@ function HomeScreen({
       {showLoginGate && (
         <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowLoginGate(false)} />
-          <div className="relative bg-white rounded-2xl shadow-xl max-w-sm w-full p-7 z-10">
+          <div ref={loginGateRef} role="dialog" aria-modal="true" aria-labelledby="login-gate-title" tabIndex={-1} className="relative bg-white rounded-2xl shadow-xl max-w-sm w-full p-7 z-10">
             <div className="w-12 h-12 rounded-2xl bg-teal-50 flex items-center justify-center mx-auto mb-4">
               <svg className="w-6 h-6 text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
               </svg>
             </div>
-            <h3 className="font-display text-xl font-bold text-slate-900 text-center mb-1" style={{ fontFamily: "Outfit, sans-serif" }}>
+            <h3 id="login-gate-title" className="font-display text-xl font-bold text-slate-900 text-center mb-1" style={{ fontFamily: "Outfit, sans-serif" }}>
               Inicia sesión para agendar
             </h3>
             <p className="text-sm text-slate-500 text-center mb-6">
@@ -1262,7 +1337,7 @@ function HomeScreen({
         ) : displayed.length === 0 ? (
           <EmptyState onReset={resetFilters} />
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+          <div className="a11y-responsive-grid grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
             {displayed.map((b) => (
               <BusinessCard
                 key={b.id}
@@ -1597,7 +1672,7 @@ function DetailScreen({ business, onBook, onBack, onLoginRequired, onChangeOfert
             <button type="button" onClick={onBack} className="rounded-xl border border-slate-200 px-5 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">Volver al inicio</button>
           </div>
         ) : (
-        <div className="grid sm:grid-cols-2 gap-5 items-start">
+        <div className="a11y-responsive-grid grid sm:grid-cols-2 gap-5 items-start">
           {/* Professionals */}
           <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 flex flex-col">
             <h2 className="font-display font-bold text-slate-900 mb-4 shrink-0" style={{ fontFamily: "Outfit, sans-serif" }}>Profesionales</h2>
@@ -1778,7 +1853,7 @@ function FilteredProScreen({
           ))}
         </div>
 
-        <div className="grid sm:grid-cols-2 gap-5 items-start">
+        <div className="a11y-responsive-grid grid sm:grid-cols-2 gap-5 items-start">
           {/* Left — Professionals */}
           <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 flex flex-col">
             <h2 className="font-display font-bold text-slate-900 mb-1 shrink-0" style={{ fontFamily: "Outfit, sans-serif" }}>Profesionales disponibles</h2>
@@ -2291,6 +2366,7 @@ function RegisterClientScreen({ onBack, onLogin }: { onBack: () => void; onLogin
   const [submitted, setSubmitted] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isSuccessful, setIsSuccessful] = useState(false);
+  const registrationSuccessDialogRef = useDialogFocus(isSuccessful, onLogin);
   const [showPassword, setShowPassword] = useState(false);
   const timerRef = useRef<number | null>(null);
   const fieldRefs: Record<ClientRegistrationField, RefObject<HTMLInputElement | null>> = {
@@ -2501,7 +2577,7 @@ function RegisterClientScreen({ onBack, onLogin }: { onBack: () => void; onLogin
       </div>
 
       {isSuccessful && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="registration-success-title">
+        <div ref={registrationSuccessDialogRef} tabIndex={-1} className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="registration-success-title">
           <div className="w-full max-w-sm rounded-3xl bg-white p-7 text-center shadow-2xl">
             <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100">
               <svg className="h-8 w-8 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
@@ -2577,6 +2653,7 @@ function RegisterProviderScreen({ onBack, onLogin }: { onBack: () => void; onLog
   const [submitted, setSubmitted] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isSuccessful, setIsSuccessful] = useState(false);
+  const providerRegistrationSuccessDialogRef = useDialogFocus(isSuccessful, onLogin);
   const [showPassword, setShowPassword] = useState(false);
   const timerRef = useRef<number | null>(null);
   const logoInputRef = useRef<HTMLInputElement>(null);
@@ -2989,7 +3066,7 @@ setIsSuccessful(true);
       </div>
 
       {isSuccessful && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="provider-registration-success-title">
+        <div ref={providerRegistrationSuccessDialogRef} tabIndex={-1} className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="provider-registration-success-title">
           <div className="w-full max-w-sm rounded-3xl bg-white p-7 text-center shadow-2xl">
             <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100">
               <svg className="h-8 w-8 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
@@ -3385,6 +3462,16 @@ function ClientDashboard({
   onLogout: () => void;
 }) {
   const [tab, setTab] = useState<DashTab>(initialTab);
+
+  useEffect(() => {
+    const titles: Partial<Record<DashTab, string>> = {
+      home: "Panel de cliente — AgendaYa",
+      dashboard: "Explorar servicios — AgendaYa",
+      "my-bookings": "Mis reservas — AgendaYa",
+      profile: "Mi perfil — AgendaYa",
+    };
+    document.title = titles[tab] ?? "Panel de cliente — AgendaYa";
+  }, [tab]);
   // HU-10: perfil de solo lectura; se pide al backend cada vez que se abre "Mi perfil"
   const [perfil, setPerfil] = useState<PerfilRespuesta["cliente"]>(null);
   const [perfilError, setPerfilError] = useState("");
@@ -3441,6 +3528,7 @@ function ClientDashboard({
       />
 
       <div className="flex-1 max-w-5xl mx-auto w-full px-4 sm:px-6 py-8">
+        <h1 className="sr-only">{tab === "profile" ? "Mi perfil" : tab === "my-bookings" ? "Mis reservas" : "Panel de cliente"}</h1>
 
         {/* ── Inicio tab ── */}
         {tab === "home" && (
@@ -3780,6 +3868,19 @@ function ProviderDashboard({
 }) {
   const nit = sesionActual()?.cuenta.id ?? "";
   const [tab, setTab] = useState<ProviderTab>("dashboard");
+
+  useEffect(() => {
+    const titles: Record<ProviderTab, string> = {
+      dashboard: "Panel de proveedor — AgendaYa",
+      bookings: "Reservas — AgendaYa",
+      professionals: "Gestionar profesionales — AgendaYa",
+      services: "Gestionar servicios — AgendaYa",
+      history: "Historial — AgendaYa",
+      notifications: "Notificaciones — AgendaYa",
+      profile: "Mi perfil — AgendaYa",
+    };
+    document.title = titles[tab];
+  }, [tab]);
   const [requests, setRequests] = useState<ProviderRequest[]>(MOCK_REQUESTS);
   const [bookings, setBookings] = useState<ProviderBooking[]>(MOCK_PROVIDER_BOOKINGS);
   const [professionals, setProfessionals] = useState<ProviderProfessional[]>([]);
@@ -4082,6 +4183,12 @@ function ProviderDashboard({
   const newDurationRef = useRef<HTMLInputElement>(null);
   const newDescriptionRef = useRef<HTMLTextAreaElement>(null);
 
+  const removeProfessionalDialogRef = useDialogFocus(Boolean(removeProfId), () => setRemoveProfId(null));
+  const professionalFormDialogRef = useDialogFocus(addProfOpen, () => closeAddProf());
+  const removeServiceDialogRef = useDialogFocus(Boolean(removingServiceId), () => setRemovingServiceId(null));
+  const editServiceDialogRef = useDialogFocus(Boolean(editingServiceId), () => cerrarEdicionServicio());
+  const addServiceDialogRef = useDialogFocus(addServiceOpen, () => closeAddPanel());
+
   // HU-26: abre "Editar servicio" con los datos actuales de la oferta
   const abrirEdicionServicio = (s: ProviderService) => {
     setServiceToast("");
@@ -4251,6 +4358,7 @@ function ProviderDashboard({
       <ProviderHeader providerName={providerName} activeTab={tab} onTab={setTab} onLogout={onLogout} unreadCount={unreadCount} />
 
       <div className="flex-1 max-w-6xl mx-auto w-full px-4 sm:px-6 py-8">
+        <h1 className="sr-only">{tab === "notifications" ? "Notificaciones" : tab === "profile" ? "Mi perfil" : tab === "professionals" ? "Gestionar profesionales" : tab === "services" ? "Gestionar servicios" : "Panel de proveedor"}</h1>
 
         {/* ── Dashboard ── */}
         {tab === "dashboard" && (
@@ -4348,11 +4456,11 @@ function ProviderDashboard({
             {removeProfId && (
               <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
                 <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setRemoveProfId(null)} />
-                <div className="relative w-full max-w-sm bg-white rounded-2xl shadow-2xl p-6 z-10">
+                <div ref={removeProfessionalDialogRef} role="dialog" aria-modal="true" aria-labelledby="remove-professional-title" tabIndex={-1} className="relative w-full max-w-sm bg-white rounded-2xl shadow-2xl p-6 z-10">
                   <div className="w-12 h-12 rounded-2xl bg-red-50 flex items-center justify-center mx-auto mb-4">
                     <svg className="w-6 h-6 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                   </div>
-                  <h3 className="font-display text-base font-bold text-slate-900 text-center mb-1" style={{ fontFamily: "Outfit, sans-serif" }}>¿Eliminar este profesional?</h3>
+                  <h3 id="remove-professional-title" className="font-display text-base font-bold text-slate-900 text-center mb-1" style={{ fontFamily: "Outfit, sans-serif" }}>¿Eliminar este profesional?</h3>
                   <p className="text-xs text-slate-500 text-center mb-5 leading-relaxed">Se quitará del equipo y sus citas activas deberán ser reasignadas manualmente.</p>
                   <div className="flex gap-3">
                     <button onClick={() => setRemoveProfId(null)} className="flex-1 py-2.5 text-sm font-semibold border border-slate-200 text-slate-600 rounded-xl hover:bg-slate-50 transition-colors">Cancelar</button>
@@ -4366,11 +4474,11 @@ function ProviderDashboard({
             {addProfOpen && (
               <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
                 <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={closeAddProf} />
-                <div className="relative w-full max-w-[520px] max-h-[90vh] bg-white rounded-2xl shadow-2xl flex flex-col z-10">
+                <div ref={professionalFormDialogRef} role="dialog" aria-modal="true" aria-labelledby="professional-form-title" tabIndex={-1} className="relative w-full max-w-[520px] max-h-[90vh] bg-white rounded-2xl shadow-2xl flex flex-col z-10">
                   {/* Modal header */}
                   <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 shrink-0">
                     <div>
-                      <h3 className="font-display text-base font-bold text-slate-900" style={{ fontFamily: "Outfit, sans-serif" }}>
+                      <h3 id="professional-form-title" className="font-display text-base font-bold text-slate-900" style={{ fontFamily: "Outfit, sans-serif" }}>
                         {editProfId ? "Editar profesional" : "Agregar profesional"}
                       </h3>
                       <p className="text-xs text-slate-400 mt-0.5">Completa los datos del miembro del equipo</p>
@@ -4428,10 +4536,10 @@ function ProviderDashboard({
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
                           </svg>
-                          <span className="text-[10px] text-slate-400 group-hover:text-teal-600 font-medium transition-colors">Foto</span>
+                          <span className="text-[0.625rem] text-slate-400 group-hover:text-teal-600 font-medium transition-colors">Foto</span>
                         </label>
                       )}
-                      <p className="text-[11px] text-slate-400 text-center">Haz clic para cargar una foto de perfil (PNG o JPG, máx. 5 MB)</p>
+                      <p className="text-[0.6875rem] text-slate-400 text-center">Haz clic para cargar una foto de perfil (PNG o JPG, máx. 5 MB)</p>
                     </div>
 
                     {/* Tipo de documento */}
@@ -4665,7 +4773,7 @@ function ProviderDashboard({
                       </div>
                     </div>
                     <div className="mt-3 pt-3 border-t border-slate-50 flex flex-wrap gap-1.5 items-center">
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mr-1">Servicios:</span>
+                      <span className="text-[0.625rem] font-bold text-slate-400 uppercase tracking-wide mr-1">Servicios:</span>
                       {p.services.length === 0
                         ? <span className="text-xs text-slate-300 italic">Sin servicios asignados</span>
                         : p.services.map((s) => (
@@ -4703,11 +4811,11 @@ function ProviderDashboard({
             {removingServiceId && (
               <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
                 <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setRemovingServiceId(null)} />
-                <div className="relative w-full max-w-sm bg-white rounded-2xl shadow-2xl p-6 z-10">
+                <div ref={removeServiceDialogRef} role="dialog" aria-modal="true" aria-labelledby="remove-service-title" tabIndex={-1} className="relative w-full max-w-sm bg-white rounded-2xl shadow-2xl p-6 z-10">
                   <div className="w-12 h-12 rounded-2xl bg-red-50 flex items-center justify-center mx-auto mb-4">
                     <svg className="w-6 h-6 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                   </div>
-                  <h3 className="font-display text-base font-bold text-slate-900 text-center mb-1" style={{ fontFamily: "Outfit, sans-serif" }}>¿Quitar este servicio de tu oferta?</h3>
+                  <h3 id="remove-service-title" className="font-display text-base font-bold text-slate-900 text-center mb-1" style={{ fontFamily: "Outfit, sans-serif" }}>¿Quitar este servicio de tu oferta?</h3>
                   <p className="text-xs text-slate-500 text-center mb-5 leading-relaxed">El servicio seguirá disponible en el catálogo de la plataforma y podrás volver a agregarlo cuando quieras.</p>
                   <div className="flex gap-3">
                     <button onClick={() => setRemovingServiceId(null)} className="flex-1 py-2.5 text-sm font-semibold border border-slate-200 text-slate-600 rounded-xl hover:bg-slate-50 transition-colors">Cancelar</button>
@@ -4724,7 +4832,7 @@ function ProviderDashboard({
               return (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
                   <button type="button" aria-label="Cerrar" className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={cerrarEdicionServicio} />
-                  <div role="dialog" aria-modal="true" aria-labelledby="edit-service-title" className="relative w-full max-w-sm bg-white rounded-2xl shadow-2xl overflow-hidden z-10">
+                  <div ref={editServiceDialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="edit-service-title" className="relative w-full max-w-sm bg-white rounded-2xl shadow-2xl overflow-hidden z-10">
                     <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
                       <div>
                         <h2 id="edit-service-title" className="font-display text-base font-bold text-slate-900" style={{ fontFamily: "Outfit, sans-serif" }}>Editar servicio</h2>
@@ -4808,10 +4916,10 @@ function ProviderDashboard({
             {addServiceOpen && (
               <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
                 <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={closeAddPanel} />
-                <div className="relative w-full max-w-[520px] max-h-[90vh] bg-white rounded-2xl shadow-2xl flex flex-col z-10">
+                <div ref={addServiceDialogRef} role="dialog" aria-modal="true" aria-labelledby="add-service-title" tabIndex={-1} className="relative w-full max-w-[520px] max-h-[90vh] bg-white rounded-2xl shadow-2xl flex flex-col z-10">
                   <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 shrink-0">
                     <div>
-                      <h3 className="font-display text-base font-bold text-slate-900" style={{ fontFamily: "Outfit, sans-serif" }}>
+                      <h3 id="add-service-title" className="font-display text-base font-bold text-slate-900" style={{ fontFamily: "Outfit, sans-serif" }}>
                         {selectedCatalogEntry ? "Configurar servicio" : "Agregar servicio"}
                       </h3>
                       <p className="text-xs text-slate-400 mt-0.5">
@@ -4865,7 +4973,7 @@ function ProviderDashboard({
                                 <span className="text-sm font-semibold text-slate-800 leading-tight">{entry.name}</span>
                                 <div className="flex items-center gap-2 shrink-0">
                                   {alreadyAdded && (
-                                    <span className="text-[10px] font-bold text-teal-700 bg-teal-50 border border-teal-200 px-2 py-0.5 rounded-full whitespace-nowrap">Ya lo ofreces</span>
+                                    <span className="text-[0.625rem] font-bold text-teal-700 bg-teal-50 border border-teal-200 px-2 py-0.5 rounded-full whitespace-nowrap">Ya lo ofreces</span>
                                   )}
                                   <CategoryBadge category={entry.category} />
                                 </div>
@@ -4894,18 +5002,18 @@ function ProviderDashboard({
 
                         {/* Read-only service info */}
                         <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
-                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Información del servicio</p>
+                          <p className="text-[0.625rem] font-bold text-slate-400 uppercase tracking-widest mb-3">Información del servicio</p>
                           <div className="space-y-3">
                             <div>
-                              <p className="text-[11px] text-slate-400 mb-0.5">Nombre</p>
+                              <p className="text-[0.6875rem] text-slate-400 mb-0.5">Nombre</p>
                               <p className="text-sm font-semibold text-slate-800">{selectedCatalogEntry.name}</p>
                             </div>
                             <div>
-                              <p className="text-[11px] text-slate-400 mb-1">Categoría</p>
+                              <p className="text-[0.6875rem] text-slate-400 mb-1">Categoría</p>
                               <CategoryBadge category={selectedCatalogEntry.category} />
                             </div>
                           </div>
-                          <p className="text-[10px] text-slate-300 mt-3 italic">La categoría es definida por la plataforma y no puede modificarse.</p>
+                          <p className="text-[0.625rem] text-slate-300 mt-3 italic">La categoría es definida por la plataforma y no puede modificarse.</p>
                         </div>
 
                         {/* Editable fields */}
@@ -4937,13 +5045,13 @@ function ProviderDashboard({
                                       setNewDescription(selectedCatalogEntry.description);
                                       setDescriptionTouched(false);
                                     }}
-                                    className="text-[11px] font-medium text-slate-400 hover:text-teal-600 hover:underline focus:outline-none focus:ring-2 focus:ring-teal-500"
+                                    className="text-[0.6875rem] font-medium text-slate-400 hover:text-teal-600 hover:underline focus:outline-none focus:ring-2 focus:ring-teal-500"
                                   >
                                     Restaurar descripción original
                                   </button>
                                 )}
                               </div>
-                              <span className={`text-[11px] tabular-nums ${newDescription.length === 300 ? "font-semibold text-red-500" : "text-slate-400"}`}>
+                              <span className={`text-[0.6875rem] tabular-nums ${newDescription.length === 300 ? "font-semibold text-red-500" : "text-slate-400"}`}>
                                 {newDescription.length}/300
                               </span>
                             </div>
@@ -4953,7 +5061,7 @@ function ProviderDashboard({
                                 La descripción es obligatoria
                               </p>
                             )}
-                            <p id="service-description-help" className="mt-1 text-[11px] text-slate-400">Puedes personalizar la descripción que verán tus clientes.</p>
+                            <p id="service-description-help" className="mt-1 text-[0.6875rem] text-slate-400">Puedes personalizar la descripción que verán tus clientes.</p>
                           </div>
                           <div>
                             <label className="block text-xs font-bold text-slate-600 uppercase tracking-wide mb-2">Precio</label>
@@ -5051,7 +5159,7 @@ function ProviderDashboard({
                 </button>
               </div>
             ) : (
-              <div className="grid sm:grid-cols-2 gap-4">
+              <div className="a11y-responsive-grid grid sm:grid-cols-2 gap-4">
                 {services.map((s) => (
                   <div key={s.id} className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 hover:shadow-md transition-all">
                     <div className="flex items-start justify-between gap-3 mb-3">
@@ -5071,12 +5179,12 @@ function ProviderDashboard({
                     <p className="line-clamp-3 text-xs leading-relaxed text-slate-500" title={s.description}>{s.description}</p>
                     <div className="flex items-center gap-4 mt-3 pt-3 border-t border-slate-50">
                       <div className="flex-1">
-                        <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wide mb-0.5">Precio</p>
+                        <p className="text-[0.625rem] text-slate-400 font-semibold uppercase tracking-wide mb-0.5">Precio</p>
                         <p className="text-base font-bold text-slate-900">${s.price.toLocaleString("es-CO")}</p>
                       </div>
                       <div className="w-px h-8 bg-slate-100" />
                       <div className="flex-1">
-                        <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wide mb-0.5">Duración</p>
+                        <p className="text-[0.625rem] text-slate-400 font-semibold uppercase tracking-wide mb-0.5">Duración</p>
                         <p className="text-base font-bold text-slate-900 flex items-center gap-1">
                           <svg className="w-4 h-4 text-teal-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                           {s.duration} min
@@ -5259,6 +5367,8 @@ function ProfAgenda({
   const rowStartRefs = useRef<Array<HTMLInputElement | null>>([]);
   const nextRowId = useRef(2);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const deleteScheduleDialogRef = useDialogFocus(Boolean(deleteId), () => setDeleteId(null));
+  const scheduleFormDialogRef = useDialogFocus(modalOpen, () => setModalOpen(false));
   const [toast, setToast] = useState("");
   const [warning, setWarning] = useState("");
   // HU-21: citas que el backend dice que quedarían fuera (409 de PUT/DELETE horario)
@@ -5468,11 +5578,11 @@ function ProfAgenda({
       {deleteId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setDeleteId(null)} />
-          <div className="relative w-full max-w-sm bg-white rounded-2xl shadow-2xl p-6 z-10">
+          <div ref={deleteScheduleDialogRef} role="dialog" aria-modal="true" aria-labelledby="delete-schedule-title" tabIndex={-1} className="relative w-full max-w-sm bg-white rounded-2xl shadow-2xl p-6 z-10">
             <div className="w-12 h-12 rounded-2xl bg-red-50 flex items-center justify-center mx-auto mb-4">
               <svg className="w-6 h-6 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a2 2 0 012-2h2a2 2 0 012 2v3M4 7h16" /></svg>
             </div>
-            <h3 className="font-display text-base font-bold text-slate-900 text-center mb-1" style={{ fontFamily: "Outfit, sans-serif" }}>¿Eliminar esta franja?</h3>
+            <h3 id="delete-schedule-title" className="font-display text-base font-bold text-slate-900 text-center mb-1" style={{ fontFamily: "Outfit, sans-serif" }}>¿Eliminar esta franja?</h3>
             <p className="text-xs text-slate-500 text-center mb-5 leading-relaxed">La disponibilidad dejará de repetirse todas las semanas.</p>
             <div className="flex gap-3">
               <button onClick={() => setDeleteId(null)} className="flex-1 py-2.5 text-sm font-semibold border border-slate-200 text-slate-600 rounded-xl hover:bg-slate-50 transition-colors">Cancelar</button>
@@ -5485,10 +5595,10 @@ function ProfAgenda({
       {modalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setModalOpen(false)} />
-          <div className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl z-10 overflow-hidden">
+          <div ref={scheduleFormDialogRef} role="dialog" aria-modal="true" aria-labelledby="schedule-form-title" tabIndex={-1} className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl z-10 overflow-hidden">
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
               <div>
-                <h3 className="font-display text-base font-bold text-slate-900" style={{ fontFamily: "Outfit, sans-serif" }}>{editingId ? "Editar disponibilidad" : "Agregar disponibilidad"}</h3>
+                <h3 id="schedule-form-title" className="font-display text-base font-bold text-slate-900" style={{ fontFamily: "Outfit, sans-serif" }}>{editingId ? "Editar disponibilidad" : "Agregar disponibilidad"}</h3>
                 <p className="text-xs text-slate-400 mt-0.5">{prof.name}</p>
               </div>
               <button onClick={() => setModalOpen(false)} className="w-8 h-8 flex items-center justify-center rounded-xl bg-slate-100 hover:bg-slate-200 transition-colors" aria-label="Cerrar">
@@ -5606,7 +5716,7 @@ function ProfAgenda({
           <button onClick={() => openAdd()} className="mt-5 px-5 py-2.5 bg-teal-600 hover:bg-teal-700 text-white text-sm font-semibold rounded-xl transition-colors">Agregar disponibilidad</button>
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+        <div className="a11y-responsive-grid grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
           {DAY_NAMES.map((dayName, day) => {
             const dayAvailability = availability.filter((block) => block.day === day).sort((first, second) => toMinutes(first.startH, first.startM) - toMinutes(second.startH, second.startM));
             return (
@@ -5622,7 +5732,7 @@ function ProfAgenda({
                       return (
                         <div key={block.id} className="space-y-2">
                           {hasGap && previous && (
-                            <p className="text-[11px] font-medium text-slate-400">
+                            <p className="text-[0.6875rem] font-medium text-slate-400">
                               Descanso: {fmtHour(previous.endH, previous.endM)} - {fmtHour(block.startH, block.startM)}
                             </p>
                           )}
@@ -5638,7 +5748,7 @@ function ProfAgenda({
                         </div>
                       );
                     })}
-                    <button onClick={() => openAdd(day)} className="w-full rounded-lg border border-dashed border-slate-200 py-2 text-[11px] font-semibold text-slate-500 hover:border-teal-300 hover:text-teal-600 transition-colors">
+                    <button onClick={() => openAdd(day)} className="w-full rounded-lg border border-dashed border-slate-200 py-2 text-[0.6875rem] font-semibold text-slate-500 hover:border-teal-300 hover:text-teal-600 transition-colors">
                       + Agregar franja
                     </button>
                     {/* La lista de citas por día se quitó: el front no recibe las reservas del profesional
@@ -5766,12 +5876,22 @@ export default function App() {
   const [preSelected, setPreSelected] = useState<PreSelected | null>(null);
   const [homeSnapshot, setHomeSnapshot] = useState<HomeSnapshot | undefined>(undefined);
   const [showGuestGate, setShowGuestGate] = useState(false);
+  const guestGateRef = useDialogFocus(showGuestGate, () => setShowGuestGate(false));
   const [loginNotice, setLoginNotice] = useState("");
   const [toast, setToast] = useState("");
   const [redirecting, setRedirecting] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [secondsRemaining, setSecondsRemaining] = useState(15 * 60);
   const [showExpiryWarning, setShowExpiryWarning] = useState(false);
+  const [fontSize, setFontSize] = useState<number>(() => {
+    try {
+      const stored = Number(sessionStorage.getItem("agendaya-font-size"));
+      return FONT_SIZES.includes(stored as (typeof FONT_SIZES)[number]) ? stored : 100;
+    } catch {
+      return 100;
+    }
+  });
+  const [fontAnnouncement, setFontAnnouncement] = useState("");
   const sessionDeadlineRef = useRef(Date.now() + 15 * 60 * 1000);
   const isAuthenticated = Boolean(clientName && userType);
 
@@ -5782,6 +5902,48 @@ export default function App() {
     const timeout = window.setTimeout(() => setToast(""), 3200);
     return () => window.clearTimeout(timeout);
   }, [toast]);
+
+  useEffect(() => {
+    document.documentElement.style.fontSize = `${fontSize}%`;
+    document.documentElement.dataset.fontScale = String(fontSize);
+    try {
+      sessionStorage.setItem("agendaya-font-size", String(fontSize));
+    } catch {
+      // sessionStorage puede estar deshabilitado; el cambio sigue activo durante esta vista.
+    }
+  }, [fontSize]);
+
+  useEffect(() => {
+    const titles: Record<Screen, string> = {
+      home: "Inicio — AgendaYa",
+      detail: selectedBusiness ? `Detalle de ${selectedBusiness.name} — AgendaYa` : "Detalle de empresa — AgendaYa",
+      "select-pro": selectedBusiness ? `Profesionales de ${selectedBusiness.name} — AgendaYa` : "Seleccionar profesional — AgendaYa",
+      confirm: "Confirmar reserva — AgendaYa",
+      confirmed: "Reserva confirmada — AgendaYa",
+      "account-type": "Crear cuenta — AgendaYa",
+      "register-client": "Registro de cliente — AgendaYa",
+      "register-provider": "Registro de proveedor — AgendaYa",
+      login: "Iniciar sesión — AgendaYa",
+      "client-dashboard": "Panel de cliente — AgendaYa",
+      "my-bookings": "Mis reservas — AgendaYa",
+      history: "Historial — AgendaYa",
+      "provider-dashboard": "Panel de proveedor — AgendaYa",
+    };
+    document.title = titles[screen];
+  }, [screen, selectedBusiness]);
+
+  useEffect(() => {
+    const markDecorativeIcons = () => {
+      document.querySelectorAll<SVGElement>("svg:not([aria-label])").forEach((icon) => {
+        icon.setAttribute("aria-hidden", "true");
+        icon.setAttribute("focusable", "false");
+      });
+    };
+    markDecorativeIcons();
+    const observer = new MutationObserver(markDecorativeIcons);
+    observer.observe(document.body, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     cuandoVenzaLaSesion(() => {
@@ -5871,6 +6033,25 @@ export default function App() {
       if (redirectTimeout) window.clearTimeout(redirectTimeout);
     };
   }, [clientName, userType]);
+
+  const decreaseFontSize = () => {
+    setFontAnnouncement("");
+    setFontSize((current) => Math.max(100, current - 25));
+  };
+  const increaseFontSize = () => {
+    setFontSize((current) => {
+      if (current >= 200) {
+        setFontAnnouncement("Alcanzaste el tamaño máximo de letra");
+        return current;
+      }
+      setFontAnnouncement("");
+      return Math.min(200, current + 25);
+    });
+  };
+  const resetFontSize = () => {
+    setFontAnnouncement("");
+    setFontSize(100);
+  };
 
   const handleManualLogout = () => {
     cerrarSesion();
@@ -5969,11 +6150,11 @@ export default function App() {
   const guestGate = showGuestGate ? (
     <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowGuestGate(false)} />
-      <div className="relative z-10 w-full max-w-sm rounded-2xl bg-white p-7 shadow-xl">
+      <div ref={guestGateRef} role="dialog" aria-modal="true" aria-labelledby="guest-gate-title" tabIndex={-1} className="relative z-10 w-full max-w-sm rounded-2xl bg-white p-7 shadow-xl">
         <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-teal-50">
           <svg className="h-6 w-6 text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
         </div>
-        <h3 className="font-display mb-1 text-center text-xl font-bold text-slate-900">Inicia sesión para agendar</h3>
+        <h3 id="guest-gate-title" className="font-display mb-1 text-center text-xl font-bold text-slate-900">Inicia sesión para agendar</h3>
         <p className="mb-6 text-center text-sm text-slate-500">Para reservar una cita necesitas tener una cuenta. Es rápido y gratuito.</p>
         <div className="space-y-2.5">
           <button onClick={() => { setShowGuestGate(false); goToLogin(); }} className="w-full rounded-xl bg-teal-600 py-3 text-sm font-bold text-white hover:bg-teal-700">Iniciar sesión</button>
@@ -6072,15 +6253,17 @@ export default function App() {
 
   return (
     <>
+      <FontSizeControls value={fontSize} onDecrease={decreaseFontSize} onIncrease={increaseFontSize} onReset={resetFontSize} announcement={fontAnnouncement} />
       {content}
+      <footer className="sr-only">AgendaYa, plataforma de reserva de servicios.</footer>
       {showQuickLogout && (
-        <button onClick={handleManualLogout} className="fixed right-4 top-4 z-50 flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-red-600 shadow-lg hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-400">
+        <button onClick={handleManualLogout} className="session-floating-action fixed right-4 top-4 z-50 flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-red-600 shadow-lg hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-400">
           <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H9m4 4v1a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h6a2 2 0 012 2v1" /></svg>
           Cerrar sesión
         </button>
       )}
       {isAuthenticated && !showExpiryWarning && (
-        <div className="fixed bottom-4 right-4 z-40 rounded-full border border-slate-200 bg-white/95 px-3 py-1.5 text-[11px] font-semibold tabular-nums text-slate-500 shadow-sm backdrop-blur" aria-label={`Tiempo de sesión restante: ${Math.floor(secondsRemaining / 60)} minutos y ${secondsRemaining % 60} segundos`}>
+        <div className="session-timer fixed bottom-4 right-4 z-40 rounded-full border border-slate-200 bg-white/95 px-3 py-1.5 text-[0.6875rem] font-semibold tabular-nums text-slate-500 shadow-sm backdrop-blur" aria-label={`Tiempo de sesión restante: ${Math.floor(secondsRemaining / 60)} minutos y ${secondsRemaining % 60} segundos`}>
           Sesión {String(Math.floor(secondsRemaining / 60)).padStart(2, "0")}:{String(secondsRemaining % 60).padStart(2, "0")}
         </div>
       )}
